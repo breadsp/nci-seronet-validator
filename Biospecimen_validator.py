@@ -8,12 +8,13 @@ def Biospecimen_validator(Biospecimen_object,neg_list,pos_list,re,valid_cbc_ids,
             pattern = re.compile('^[0-9]{2}[_]{1}[0-9]{6}$')    
             [Biospecimen_object.valid_ID(header_name,i[1],pattern,valid_cbc_ids,error_msg,has_data_column.index[i[0]],'Error') for i in enumerate(has_data_column)]    
             [Biospecimen_object.is_required(header_name,i[1],"All",missing_data_column.index[i[0]],'Error') for i in enumerate(missing_data_column)] 
-          
-            matching_values = [i for i in enumerate(has_data_column) if pattern.match(i[1]) is not None]
-            if (len(matching_values) > 0) and (len(current_demo) > 0):
+            
+            id_error_list = [i[5] for i in Biospecimen_object.error_list_summary if (i[0] == "Error") and (i[4] == "Research_Participant_ID")]
+            matching_values = [i for i in enumerate(test_column) if (pattern.match(i[1]) is not None) and (i[1] not in id_error_list)]
+            if (len(matching_values) > 0):
                 error_msg = "Id is not found in database or in submitted demographic file"
-                [Biospecimen_object.in_list(header_name,i[1][1],current_demo,error_msg,has_data_column.index[i[1][0]],'Error') for i in enumerate(matching_values)]
-       
+                [Biospecimen_object.in_list(header_name,i[1][1],current_demo,error_msg,i[1][0],'Error') for i in enumerate(matching_values)]
+
         elif (header_name in ["Biospecimen_ID"]):
             error_msg = "Value it not a Valid id format, Expecting XX_XXXXXX_XXX"
             pattern = re.compile('^[0-9]{2}[_]{1}[0-9]{6}[_]{1}[0-9]{3}$')    

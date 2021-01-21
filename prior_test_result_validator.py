@@ -12,10 +12,12 @@ def prior_test_result_validator(prior_valid_object,neg_list,pos_list,re,valid_cb
             [prior_valid_object.valid_ID(header_name,i[1],pattern,valid_cbc_ids,error_msg,has_data_column.index[i[0]],'Error') for i in enumerate(has_data_column)]    
             [prior_valid_object.is_required(header_name,i[1],"All",missing_data_column.index[i[0]],'Error') for i in enumerate(missing_data_column)] 
          
-            matching_values = [i for i in enumerate(has_data_column) if pattern.match(i[1]) is not None]
+            id_error_list = [i[5] for i in prior_valid_object.error_list_summary if (i[0] == "Error") and (i[4] == "Research_Participant_ID")]
+            matching_values = [i for i in enumerate(test_column) if pattern.match(i[1]) is not None]
             if (len(matching_values) > 0) and (len(current_demo) > 0):
                 error_msg = "Id is not found in database or in submitted demographic file"
-                [prior_valid_object.in_list(header_name,i[1][1],current_demo,error_msg,has_data_column.index[i[1][0]],'Error') for i in enumerate(matching_values)]
+                [prior_valid_object.in_list(header_name,i[1][1],current_demo,error_msg,i[1][0],'Error') for i in enumerate(matching_values)]
+        
         elif (header_name.find('Date_of_SARS_CoV_2_PCR_sample_collection') > -1): 
             error_msg = "Value must be a valid date MM/DD/YYYY"
             [prior_valid_object.is_date_time(header_name,i[1],False,error_msg,has_data_column.index[i[0]],'Error') for i in enumerate(has_data_column)]    
