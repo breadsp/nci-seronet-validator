@@ -11,11 +11,13 @@ def demographic_data_validator(demo_data_object,neg_list,pos_list,re,valid_cbc_i
             [demo_data_object.valid_ID(header_name,i[1],pattern,valid_cbc_ids,error_msg,has_data_column.index[i[0]],'Error') for i in enumerate(has_data_column)]    
             [demo_data_object.is_required(header_name,i[1],"All",missing_data_column.index[i[0]],'Error') for i in enumerate(missing_data_column)] 
         
-            matching_values = [i for i in enumerate(test_column) if pattern.match(i[1]) is not None]
-            for i in matching_values:
-                if i[1] not in pos_list['Research_Participant_ID'].tolist()+neg_list['Research_Participant_ID'].tolist():
-                    error_msg = "ID is valid, however is not found in Prior_Test_Results, No Matching Prior_SARS_CoV-2 Result"
-                    demo_data_object.write_error_msg(i[1],header_name,error_msg,i[0],'Error')    
+            id_error_list = [i[5] for i in demo_data_object.error_list_summary if (i[0] == "Error") and (i[4] == "Research_Participant_ID")]
+            matching_values = [i for i in enumerate(test_column) if (pattern.match(i[1]) is not None) and (i[1] not in id_error_list)]
+            if (len(matching_values) > 0):
+                error_msg = "ID is valid, however is not found in Prior_Test_Results, No Matching Prior_SARS_CoV-2 Result"
+                check_list = pos_list['Research_Participant_ID'].tolist()+neg_list['Research_Participant_ID'].tolist()
+                [demo_data_object.in_list(header_name,i[1][1],check_list,error_msg,i[1][0],'Error') for i in enumerate(matching_values)]
+
         elif (header_name.find('Age') > -1):
             error_msg = "Value must be a number greater than 0"
             [demo_data_object.is_numeric(header_name,False,i[1],0,error_msg,has_data_column.index[i[0]],'Error') for i in enumerate(has_data_column)]

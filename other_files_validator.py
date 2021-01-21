@@ -28,7 +28,7 @@ def other_files_validator(data_object,re,valid_cbc_ids,biospec_ids,output_file):
             id_error_list = [i[6] for i in data_object.error_list_summary if (i[0] == "Error") and (i[5] == "Biospecimen_ID")]
             matching_values = [i for i in enumerate(test_column) if (pattern.match(i[1]) is not None) and (i[1] not in id_error_list)]
             if (len(matching_values) > 0):
-                error_msg = "Id is not found in database or in submitted demographic file"
+                error_msg = "Id is not found in database or in submitted Biospecimen file"
                 [data_object.in_list(header_name,i[1][1],biospec_ids['Biospecimen_ID'].tolist(),error_msg,i[1][0],'Error') for i in enumerate(matching_values)]
 
 
