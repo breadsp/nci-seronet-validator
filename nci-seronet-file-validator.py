@@ -20,7 +20,7 @@ def lambda_handler(event, context):
     user_name = ssm.get_parameter(Name="lambda_db_username", WithDecryption=True).get("Parameter").get("Value")
     user_password =ssm.get_parameter(Name="lambda_db_password", WithDecryption=True).get("Parameter").get("Value")
     file_dbname = ssm.get_parameter(Name="jobs_db_name", WithDecryption=True).get("Parameter").get("Value")
-#    pre_valid_db = ssm.get_parameter(Name="Prevalidated_DB", WithDecryption=True).get("Parameter").get("Value")
+    pre_valid_db = ssm.get_parameter(Name="Prevalidated_DB", WithDecryption=True).get("Parameter").get("Value")
     TopicArn_Success = ssm.get_parameter(Name="TopicArn_Success", WithDecryption=True).get("Parameter").get("Value")
     TopicArn_Failure = ssm.get_parameter(Name="TopicArn_Failure", WithDecryption=True).get("Parameter").get("Value")
     
@@ -51,6 +51,11 @@ def lambda_handler(event, context):
         conn = mysql.connector.connect(user=user_name, host=host_client, password=user_password, database=file_dbname)
         print("SUCCESS: Connection to RDS mysql instance succeeded for " + file_dbname)
         sql_connect = conn.cursor(prepared=True)
+        
+        full_conn = mysql.connector.connect(user=user_name, host=host_client, password=user_password, database="INFORMATION_SCHEMA")
+        print("SUCCESS: Connection to RDS mysql instance succeeded for INFORMATION_SCHEMA")
+        info_sql_connect = full_conn.cursor(prepared=True)
+        
         rows, desc, processing_table = get_rows_to_validate(event, conn, sql_connect, Validation_Type)
         if processing_table == 0:
             print('## Database has been checked, NO new files were found to process.  Closing the connections ##')
@@ -89,7 +94,7 @@ def lambda_handler(event, context):
 
             sub_folder = "submission_%03d_%s" % (file_index, zip_file_name)
             file_index = file_index + 1
-            Results_key = CBC_submission_name + '/' + CBC_submission_date + '/' + sub_folder + "/Validation_Results/"
+            Results_key = CBC_submission_name + '/' + CBC_submission_date + '/' + sub_folder + "/File_Validation_Results/"
             Unzipped_key = CBC_submission_name + '/' + CBC_submission_date + '/' + sub_folder + "/UnZipped_Files/"
 
             first_folder_cut = full_bucket_name.find('/')  # only seperate on first '/' to get bucket and key info
@@ -99,9 +104,9 @@ def lambda_handler(event, context):
             #####################################################################################################################
             print("## FileName Found    folder name :: " + bucket_name + "    key name :: " + org_key_name)
             submission_error_list = [['File_Name', 'Column_Name', 'Error_Message']]
+            
             error_value, meta_error_msg, zip_obj = check_if_zip(s3_resource, bucket_name, org_key_name)
 
-            print("error value: " + str(error_value) + " " + meta_error_msg)
             if error_value > 0:
                 lambda_path = write_error_messages(Results_key, "Result_Message.txt", "text", meta_error_msg)
                 s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key)
@@ -154,14 +159,6 @@ def lambda_handler(event, context):
                 sort_idx = [int(l) for l in sort_idx]
                 full_name_list = [full_name_list[l] for l in sort_idx]
 
-                if len(
-                        submission_error_list) > 1:  # if errors were found, remove these file names before moving to next step
-                    error_files = [i[1][0] for i in enumerate(submission_error_list)]
-                    error_files = error_files[1:]
-                    full_name_list = [i for i in full_name_list if i not in error_files]
-                if len(error_files) > 1:
-                    error_files = list(set(error_files))
-
                 submit_CBC, submit_to_file, file_to_submit, submit_validation_type = get_submission_metadata(s3_client,
                                                                                                              folder_name,
                                                                                                              Unzipped_key,
@@ -169,16 +166,16 @@ def lambda_handler(event, context):
 
                 if len(submit_CBC) == 0:
                     error_msg = "Submission_Metadata.csv was not found in submission zip file"
-                    submission_error_list.append(["submission_metadata.csv", "All Columns", error_msg])
+                    submission_error_list.append(["Submission_Metadata.csv", "All Columns", error_msg])
                 if len(file_to_submit) > 0:
                     for i in file_to_submit:
                         if i != "Submission_Metadata.csv":
                             error_msg = "file name was found in the submitted zip, but was not checked in submission metadata.csv"
-                            submission_error_list.append(["submission_metadata.csv", i, error_msg])
+                            submission_error_list.append([i, "All Columns", error_msg])
                 if len(submit_to_file) > 0:
                     for i in submit_to_file:
                         error_msg = "file name was checked in submission metadata.csv, but was not found in the submitted zip file"
-                        submission_error_list.append(["submission_metadata.csv", i, error_msg])
+                        submission_error_list.append([i,"All Columns", error_msg])
 
                 if len(submission_error_list) > 1:
                     meta_error_msg = "File is a valid Zipfile. However there were " + str(len(
@@ -189,18 +186,24 @@ def lambda_handler(event, context):
                 lambda_path = write_error_messages(Results_key, "Result_Message.txt", "text", meta_error_msg)
                 s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key)
 
+                full_name_list,error_files = filter_error_list(submission_error_list,full_name_list)
+ 
             if (error_value == 0):
                 result_location = "NULL"
+                submission_error_list = check_column_names(s3_client,folder_name,Unzipped_key,submission_error_list,full_name_list,info_sql_connect,pre_valid_db,filename,
+                                                       check_name_list,list_of_valid_file_names)
+                
+                full_name_list,error_files = filter_error_list(submission_error_list,full_name_list)
             else:
                 result_location = folder_name + "/" + Results_key + "Result_Message.txt"
-
+    
             if len(submission_error_list) > 1:  # if submission errors are found, write coresponding csv file
                 lambda_path = write_error_messages(Results_key, "Error_Results.csv", "csv", submission_error_list)
                 s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key)
                 result_location = folder_name + "/" + Results_key + "Error_Results.csv"
             ############################################################################################################################
             if error_value > 0:
-                validation_status_list.append('FILE_VALIDATION_Failure')
+                validation_status_list.append('FILE_VALIDATION_FAILURE')
                 validation_file_location_list.append(result_location)
                 batch_validation_status = "Batch_Validation_FAILURE"
 
@@ -216,10 +219,8 @@ def lambda_handler(event, context):
                 submission_index = write_submission_table(conn, sql_connect,org_file_id,
                                                           batch_validation_status, submit_validation_type, result_location)
             ################################################################################################################
-            print(submission_index)
-
             validation_status_list, validation_file_location_list = update_validation_status(error_files,
-                                                                                             'FILE_VALIDATION_Failure',
+                                                                                             'FILE_VALIDATION_FAILURE',
                                                                                              folder_name, Unzipped_key,
                                                                                              validation_status_list,
                                                                                              validation_file_location_list,
@@ -255,7 +256,6 @@ def lambda_handler(event, context):
     ###################################################################################################################
     except Exception as e: 
         print(e)
-        print("ERROR: Unexpected error: Could not connect to MySql instance.")
         print("Terminating Validation Process")
 
     finally:
@@ -305,116 +305,6 @@ def get_rows_to_validate(event,conn,sql_connect,Validation_Type):
 
     return rows,desc,processing_table
 
-def import_data_into_table (valid_dbname,table_name,current_row,header_row,sql_connect,conn,CBC_submission_name,CBC_submission_time = "None_Provided"):
-    query_str = ("show index from `%s` where Key_name = 'PRIMARY';" %(table_name))
-    sql_connect.execute(query_str)
-    
-    query_res =sql_connect.rowcount     #number of primary keys
-    rows = sql_connnect.fetchall()
-    
-    dup_counts = check_for_dup_primary_keys(sql_connect,valid_dbname,current_row,header_row,table_name,query_res,rows)
-
-    query_str = "select * from `%s`" %(table_name)
-    sql_connect.execute(query_str)
-    desc = sql_connect.description
-    query_res =sql_connect.rowcount
-
-    column_names_list = [];         column_type_list = [];
-    for col_name in desc:
-        column_names_list.append(col_name[0]);
-        column_type_list.append(FieldType.get_info(col_name[1]))
-
-    res_cols = [];          res_head = [];
-
-    for val in enumerate(column_names_list):
-        if val[1] in header_row:
-            match_idx = header_row.index(val[1])
-            res_cols.append(match_idx)
-
-    for val in enumerate(header_row):
-        if val[1] in column_names_list:
-            match_idx = column_names_list.index(val[1])
-            res_head.append(match_idx)
-
-    string_1 =  "INSERT INTO `" + valid_dbname + "`.`" + table_name + "`("
-    string_2 =  "VALUE ("
-    for i in res_cols:
-        if header_row[i] == "Submission_ID":
-            string_1 = string_1 + " "
-        else:
-            string_1 = string_1 + header_row[i] + ","
-    string_1 = string_1[:-1] + ")"
-
-    res_head.sort()
-
-    for i in enumerate(res_cols):              #still need to check for boolen and date flags
-        column_type = column_type_list[res_head[i[0]]]
-        column_value = current_row[res_cols[i[0]]]
-
-        if column_type.upper() == 'DATE':
-            column_value = column_value.replace('/',',')
-            string_2 = string_2 + "STR_TO_DATE('" +  column_value + "','%m,%d,%Y'),"
-        elif column_type.upper() == 'TIME':
-            string_2 = string_2 + "TIME_FORMAT('" +  column_value + "','%H:%i'),"
-        elif column_type.upper() == 'TINY':
-            if column_value == 'T':
-                string_2 = string_2 + "1,"
-            elif column_value == 'F':
-                string_2 = string_2 + "0,"
-        else:
-            string_2 = string_2 + "'"  + column_value + "',"
-    string_2 = string_2[:-1] + ")"
-  
-    if 'Submission_CBC' in column_names_list:
-        string_1 = string_1[:-1] + ",Submission_CBC)"
-        string_2 = string_2[:-1] + ",'" + CBC_submission_name + "')"
-
-    if 'Submission_time' in column_names_list:
-        string_1 = string_1[:-1] + ",Submission_time)"
-        CBC_submission_time = CBC_submission_time.replace('-',',')
-        CBC_submission_time = CBC_submission_time.replace('_',',')
-        string_2 = string_2[:-1] + ",STR_TO_DATE('" +  CBC_submission_time + "','%H,%i,%S,%m,%d,%Y'))"
- 
-    query_auto = string_1 + string_2
-
-    try:
-        sql_connect.execute(query_auto)
-        processing_table = sql_connect.rowcount
-        if processing_table == 0:
-            print("## error in submission string")
-        else:
-            conn.commit()
-    except:
-        print(query_auto)
-    return dup_counts
-    
-def check_for_dup_primary_keys(sql_connect,valid_dbname,current_row,header_row,table_name,query_res,rows):
-    dup_counts = 0
-    if query_res > 0:
-        if query_res == 1:      #table has 1 primary key
-            if table_name == "Submission_MetaData":             #primary key does not exist in the file
-                pass
-            else:
-                key_value_1 = current_row[header_row.index(rows[0][4])]
-                query_str = ("select * from `" + valid_dbname +"`.`" + table_name + "` where %s = %s")
-                sql_connect.execute(query_str,(rows[0][4],key_value_1,))
-        elif query_res == 2:      #table has 2 primary keys
-            key_value_1 = current_row[header_row.index(rows[0][4])]
-            key_value_2 = current_row[header_row.index(rows[1][4])]
-            query_str = ("select * from `" + valid_dbname +"`.`" + table_name + "` where %s = %s and %s = %s")
-            sql_connect.execute(query_str,(rows[0][4],key_value_1,rows[1][4],key_value_2,))
-        elif query_res == 3:      #table has 3 primary keys
-            key_value_1 = current_row[header_row.index(rows[0][4])]
-            key_value_2 = current_row[header_row.index(rows[1][4])]
-            key_value_3 = current_row[header_row.index(rows[2][4])]
-            query_str = ("select * from `" + valid_dbname +"`.`" + table_name + "` where %s = %s and %s = %s and %s = %s")
-            sql_connect.execute(query_str,(rows[0][4],key_value_1,rows[1][4],key_value_2,rows[2][4],key_value_3,))
-        
-        if table_name not in ["Submission_MetaData"]:             #primary key does not exist in the file
-            if sql_connect.rowcount > 0:
-                dup_counts =  1;
-    return dup_counts
-                
 def check_if_zip(s3_resource,bucket_name,key_name):
     z = []
     if(str(key_name).endswith('.zip')):                                       #Zip Extension was found
@@ -432,6 +322,21 @@ def check_if_zip(s3_resource,bucket_name,key_name):
         error_value = 2
 
     return error_value,meta_error_msg,z
+    
+def get_column_names_from_SQL(full_sql_connect,pre_valid_db,current_file,check_name_list,list_of_valid_file_names):
+    all_headers = list()
+    values_to_ignore = ['Submission_ID','Submission_CBC','Biorepository_ID','Shipping_ID', 'Test_Agreement','Submission_time']
+    if current_file in check_name_list:
+        list_pos = check_name_list.index(current_file)
+        table_names =  list_of_valid_file_names[list_pos][1]
+        if len(table_names) > 0:
+            for iterT in table_names:
+                sql_query = "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = %s AND TABLE_SCHEMA = %s;"
+                full_sql_connect.execute(sql_query,(iterT,pre_valid_db,))
+                curr_table = full_sql_connect.fetchall()
+                curr_table =  [ele[0] for ele in curr_table if ele[0] not in values_to_ignore]
+                all_headers = all_headers + curr_table
+    return all_headers
 
 def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list):
     submitting_center = [];            submit_to_file = [];                file_to_submit = [];
@@ -457,7 +362,7 @@ def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list):
     return submitting_center,submit_to_file,file_to_submit,validation_type
     
 def update_validation_status(list_of_filesnames,validation_status,folder_name,Unzipped_key,validation_status_list,validation_file_location_list,
-    conn,sql_connect,submission_index,file_validation_date,Validation_Type):
+                             conn,sql_connect,submission_index,file_validation_date,Validation_Type):
     for filename in list_of_filesnames:
         file_location = folder_name + '/' + Unzipped_key + filename
         validation_status_list.append(validation_status)          # record each validation status
@@ -466,6 +371,17 @@ def update_validation_status(list_of_filesnames,validation_status,folder_name,Un
         if Validation_Type == "DB_Mode":
             write_validation_status(conn,sql_connect,submission_index,file_location,file_validation_date,validation_status)
     return validation_status_list,validation_file_location_list
+
+def filter_error_list(submission_error_list,full_name_list):
+    error_files = []
+    if len(submission_error_list) > 1:  # if errors were found, remove these file names before moving to next step
+        error_files = [i[1][0] for i in enumerate(submission_error_list)]
+        if len(error_files) > 1:
+            error_files = error_files[1:]
+            error_files = list(set(error_files))
+        if len(full_name_list) > 0:
+            full_name_list = [i for i in full_name_list if i not in error_files]
+    return full_name_list,error_files    
 
 def write_validation_status(conn,sql_connect,submission_file_id,file_location,file_validation_date,validation_status):
     query_str = ("INSERT INTO `table_file_validator` (submission_file_id,file_validation_file_location,file_validation_date,file_validation_status)"
@@ -531,3 +447,26 @@ def move_submit_file_to_subfolder(Validation_Type,s3_client,bucket_name,org_key_
     if Validation_Type == "DB_Mode":
         s3_client.copy_object(Bucket=bucket_name, Key=new_key,CopySource={'Bucket':bucket_name, 'Key':org_key_name})
         s3_client.delete_object(Bucket=bucket_name, Key=org_key_name)           # Delete original object
+        
+def check_column_names(s3_client,folder_name,Unzipped_key,submission_error_list,full_name_list,info_sql_connect,pre_valid_db,filename,
+                       check_name_list,list_of_valid_file_names):
+    for filename in full_name_list:
+        all_headers = get_column_names_from_SQL(info_sql_connect,pre_valid_db,filename,check_name_list,list_of_valid_file_names)
+        if len(all_headers) > 0:
+            temp_location = '/tmp/test_file'
+            s3_client.download_file(folder_name, Unzipped_key + filename, temp_location)
+            with open(temp_location, newline='') as csvfile:
+                file_reader = csv.reader(csvfile, delimiter=',', quotechar='|')
+                row1 = next(file_reader)
+
+            CSV_not_in_SQL = [i for i in row1 if i not in all_headers]
+            SQL_not_in_CSV = [i for i in all_headers if i not in row1]
+            
+            for iterC in CSV_not_in_SQL:
+                error_msg = "Column name was found in CSV file, but does not exist in Database"
+                submission_error_list.append([filename, iterC, error_msg])
+            
+            for iterS in SQL_not_in_CSV:
+                error_msg = "Column name exists in Database, but is missing from CSV file"
+                submission_error_list.append([filename, iterS, error_msg])
+    return submission_error_list 
