@@ -338,7 +338,7 @@ def get_column_names_from_SQL(full_sql_connect,pre_valid_db,current_file,check_n
 
 def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list):
     submitting_center = []
-    submit_to_file = []    
+    submit_to_file = []
     file_to_submit = []
     valid_type = "NULL"
     temp_location = 'dummy_file'
