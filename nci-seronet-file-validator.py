@@ -1,4 +1,5 @@
 import boto3                    #used to connect to aws servies
+import json
 from io import BytesIO          #used to convert file into bytes in order to unzip
 import zipfile                  #used to unzip the incomming file
 from mysql.connector import FieldType   #get the mysql field type in case formating is necessary
@@ -208,7 +209,7 @@ def lambda_handler(event, context):
                 submission_index = write_submission_table(conn, sql_connect,org_file_id,file_location,
                                                           batch_validation_status, submit_validation_type, result_location)
             if len(submission_error_list) > 1:
-                meta_error_msg = ("File is a valid Zipfile. However there were " + str(len(submission_error_list) - 1) + 
+                meta_error_msg = ("File is a valid Zipfile. However there were " + str(len(submission_error_list) - 1) +
                     " errors found in the submission.  A CSV file has been created contaning these errors")
             ################################################################################################################
             error_files = [i for i in error_files if i in org_file_list]            #only files that were in orgional submission
@@ -247,9 +248,11 @@ def lambda_handler(event, context):
                           'validation_file_location_list': validation_file_location_list,
                           'validation_status_list': validation_status_list, 'full_name_list': full_name_list,
                           'previous_function': "prevalidator", 'org_file_name': zip_file_name,"send_slack": send_slack, "send_email": send_email}
+                
+                resultJson=json.dumps(result)
                 update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure)
     ###################################################################################################################
-    except Exception as e: 
+    except Exception as e:
         print(e)
         print("Terminating Validation Process")
 
@@ -334,16 +337,16 @@ def get_column_names_from_SQL(full_sql_connect,pre_valid_db,current_file,check_n
     return all_headers
 
 def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list):
-    submitting_center = [];            
-    submit_to_file = [];                
-    file_to_submit = [];
+    submitting_center = []       
+    submit_to_file = []              
+    file_to_submit = []
     valid_type = "NULL"
     temp_location = 'dummy_file'
  
     if "submission.csv" in full_name_list:
         s3_client.download_file(folder_name, Unzipped_key + "submission.csv", temp_location)
 
-        file_list_name = []; 
+        file_list_name = []
         file_list_value = []
         with open(temp_location, newline='') as csvfile:
             file_reader = csv.reader(csvfile, delimiter=',', quotechar='|')
@@ -380,7 +383,7 @@ def filter_error_list(submission_error_list,full_name_list):
             error_files = list(set(error_files))
         if len(full_name_list) > 0:
             full_name_list = [i for i in full_name_list if i not in error_files]
-    return full_name_list,error_files    
+    return full_name_list,error_files
 
 def write_validation_status(conn,sql_connect,submission_file_id,file_location,file_validation_date,validation_status):
     query_str = ("INSERT INTO `table_file_validator` (submission_file_id,file_validation_file_location,file_validation_date,file_validation_status)"
@@ -442,7 +445,7 @@ def update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,ful
 
     timestampDB=datetime.datetime.now(tz=eastern).strftime('%Y-%m-%d %H:%M:%S')   # time stamp of when valiation was compelte
     result.update({'validation_date':timestampDB,'file_submitted_by':file_submitted_by})
-    response=sns_publisher(result,TopicArn_Success,TopicArn_Failure)
+    sns_publisher(result,TopicArn_Success,TopicArn_Failure)
 
 def move_submit_file_to_subfolder(Validation_Type,s3_client,bucket_name,org_key_name,new_key):
     if Validation_Type == DB_MODE:
