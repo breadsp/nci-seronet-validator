@@ -6,7 +6,7 @@ import mysql.connector
 import datetime
 import dateutil.tz
 import difflib
-from seronetdBUtilities import *
+#from seronetdBUtilities import *
 from seronetSnsMessagePublisher import sns_publisher
 import csv
 
@@ -42,11 +42,11 @@ def lambda_handler(event, context):
          ("consumable.csv",["Consumable"]),
          ("submission.csv",[])]
          
-    Validation_Type = DB_MODE
+    Validation_Type = DB_MODE  
     if 'testMode' in event:
         if event['testMode']=="On":         #if testMode is off treats as DB mode with manual trigger
             Validation_Type = TEST_MODE   #"Test_Mode"
-#####################################################################################################################
+#####################################################################################################################  
 ## connect to the mySQL jobs table and pull records needed to process
     conn = None
     sql_connect = None
@@ -111,7 +111,7 @@ def lambda_handler(event, context):
             error_value, meta_error_msg, zip_obj = check_if_zip(s3_resource, bucket_name, org_key_name)
 
             if error_value > 0:
-                lambda_path = write_error_messages(Results_key, "Result_Message.txt", "text", meta_error_msg)
+                lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg)
                 s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key)
 
             if error_value == 0:  # only examime contents of file if sucessfully unziped
@@ -171,7 +171,7 @@ def lambda_handler(event, context):
                 else:
                     meta_error_msg = "File is a valid Zipfile. No errors were found in submission. Files are good to proceed to Data Validation"
 
-                lambda_path = write_error_messages(Results_key, "Result_Message.txt", "text", meta_error_msg)
+                lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg)
                 s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key + "Result_Message.txt")
 
                 full_name_list,error_files = filter_error_list(submission_error_list,full_name_list)
@@ -183,7 +183,7 @@ def lambda_handler(event, context):
                 
                 full_name_list,error_files = filter_error_list(submission_error_list,full_name_list)
             if len(submission_error_list) > 1:  # if submission errors are found, write coresponding csv file
-                lambda_path = write_error_messages(Results_key, "Error_Results.csv", "csv", submission_error_list)
+                lambda_path = write_error_messages("Error_Results.csv", "csv", submission_error_list)
                 s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key + "Error_Results.csv")
                 result_location = folder_name + "/" + Results_key + "Error_Results.csv"
             ############################################################################################################################
@@ -208,7 +208,7 @@ def lambda_handler(event, context):
                 submission_index = write_submission_table(conn, sql_connect,org_file_id,file_location,
                                                           batch_validation_status, submit_validation_type, result_location)
             if len(submission_error_list) > 1:
-                meta_error_msg = ("File is a valid Zipfile. However there were " + str(len(submission_error_list) - 1) +
+                meta_error_msg = ("File is a valid Zipfile. However there were " + str(len(submission_error_list) - 1) + 
                     " errors found in the submission.  A CSV file has been created contaning these errors")
             ################################################################################################################
             error_files = [i for i in error_files if i in org_file_list]            #only files that were in orgional submission
@@ -249,7 +249,7 @@ def lambda_handler(event, context):
                           'previous_function': "prevalidator", 'org_file_name': zip_file_name,"send_slack": send_slack, "send_email": send_email}
                 update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure)
     ###################################################################################################################
-    except Exception as e:
+    except Exception as e: 
         print(e)
         print("Terminating Validation Process")
 
@@ -334,11 +334,12 @@ def get_column_names_from_SQL(full_sql_connect,pre_valid_db,current_file,check_n
     return all_headers
 
 def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list):
-    submitting_center = []
-    submit_to_file = [] 
-    file_to_submit = []
+    submitting_center = [];            
+    submit_to_file = [];                
+    file_to_submit = [];
     valid_type = "NULL"
-    temp_location = '/tmp/test_file'
+    temp_location = 'dummy_file'
+ 
     if "submission.csv" in full_name_list:
         s3_client.download_file(folder_name, Unzipped_key + "submission.csv", temp_location)
 
@@ -379,7 +380,7 @@ def filter_error_list(submission_error_list,full_name_list):
             error_files = list(set(error_files))
         if len(full_name_list) > 0:
             full_name_list = [i for i in full_name_list if i not in error_files]
-    return full_name_list,error_files
+    return full_name_list,error_files    
 
 def write_validation_status(conn,sql_connect,submission_file_id,file_location,file_validation_date,validation_status):
     query_str = ("INSERT INTO `table_file_validator` (submission_file_id,file_validation_file_location,file_validation_date,file_validation_status)"
@@ -407,8 +408,7 @@ def write_submission_table(conn,sql_connect,org_file_id,file_location,batch_vali
     submission_index = sql_connect.fetchone()
     return submission_index[0]
     
-def write_error_messages(new_key,result_name,file_type,error_output):
-    new_key = new_key + "/" + result_name
+def write_error_messages(result_name,file_type,error_output):
     lambda_path = "/tmp/" + result_name
     if file_type == "text":
         with open(lambda_path, 'w+', newline='') as txtfile:
@@ -442,7 +442,7 @@ def update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,ful
 
     timestampDB=datetime.datetime.now(tz=eastern).strftime('%Y-%m-%d %H:%M:%S')   # time stamp of when valiation was compelte
     result.update({'validation_date':timestampDB,'file_submitted_by':file_submitted_by})
-    sns_publisher(result,TopicArn_Success,TopicArn_Failure)
+    response=sns_publisher(result,TopicArn_Success,TopicArn_Failure)
 
 def move_submit_file_to_subfolder(Validation_Type,s3_client,bucket_name,org_key_name,new_key):
     if Validation_Type == DB_MODE:
@@ -455,7 +455,7 @@ def check_column_names(s3_client,folder_name,Unzipped_key,submission_error_list,
         all_headers = get_column_names_from_SQL(info_sql_connect,pre_valid_db,filename,check_name_list,list_of_valid_file_names)
         all_headers = list(set(all_headers))
         if len(all_headers) > 0:
-            temp_location = '/tmp/test_file'
+            temp_location = 'dummy_file'
             s3_client.download_file(folder_name, Unzipped_key + filename, temp_location)
             with open(temp_location, newline='',encoding='utf-8=sig') as csvfile:
                 file_reader = csv.reader(csvfile, delimiter=',', quotechar='|')
