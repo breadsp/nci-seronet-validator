@@ -249,7 +249,7 @@ def lambda_handler(event, context):
                           'validation_status_list': validation_status_list, 'full_name_list': full_name_list,
                           'previous_function': "prevalidator", 'org_file_name': zip_file_name,"send_slack": send_slack, "send_email": send_email}
                 
-                resultJson=json.dumps(result)
+                result = json.dumps(result)
                 update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure)
     ###################################################################################################################
     except Exception as e:
@@ -337,8 +337,8 @@ def get_column_names_from_SQL(full_sql_connect,pre_valid_db,current_file,check_n
     return all_headers
 
 def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list):
-    submitting_center = []       
-    submit_to_file = []              
+    submitting_center = []
+    submit_to_file = []    
     file_to_submit = []
     valid_type = "NULL"
     temp_location = 'dummy_file'
