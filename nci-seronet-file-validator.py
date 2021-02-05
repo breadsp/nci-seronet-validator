@@ -1,5 +1,4 @@
 import boto3                    #used to connect to aws servies
-import json
 from io import BytesIO          #used to convert file into bytes in order to unzip
 import zipfile                  #used to unzip the incomming file
 from mysql.connector import FieldType   #get the mysql field type in case formating is necessary
@@ -10,8 +9,6 @@ import difflib
 #from seronetdBUtilities import *
 from seronetSnsMessagePublisher import sns_publisher
 import csv
-import codecs
-import hashlib
 
 DB_MODE = "DB_Mode"
 TEST_MODE = "Test_Mode"
@@ -150,7 +147,7 @@ def lambda_handler(event, context):
                         submission_error_list.append([current_name, "All Columns",
                                                       "Filename was not recgonized, please correct and resubmit file"])
 
-                submit_CBC, submit_to_file, file_to_submit, submit_validation_type,md5_status = get_submission_metadata(s3_client,
+                submit_CBC, submit_to_file, file_to_submit, submit_validation_type = get_submission_metadata(s3_client,
                                                                                                              folder_name,
                                                                                                              Unzipped_key,
                                                                                                              full_name_list,
@@ -183,7 +180,7 @@ def lambda_handler(event, context):
  
             result_location = folder_name + "/" + Results_key + "Result_Message.txt"
             if (error_value == 0):
-                submission_error_list,md5_status = check_column_names(s3_client,folder_name,Unzipped_key,submission_error_list,full_name_list,info_sql_connect,pre_valid_db,
+                submission_error_list = check_column_names(s3_client,folder_name,Unzipped_key,submission_error_list,full_name_list,info_sql_connect,pre_valid_db,
                                                             check_name_list,list_of_valid_file_names,temp_location)
                 
                 full_name_list,error_files = filter_error_list(submission_error_list,full_name_list)
@@ -315,7 +312,8 @@ def check_if_zip(s3_resource,bucket_name,key_name):
             z = zipfile.ZipFile(buffer)                                     #unzips the contents into temp storage
             error_value = 0;
             meta_error_msg = "File was sucessfully unzipped"
-        except Exception:
+        except Exception as e:
+            print(e)
             meta_error_msg = "Zip file was found, but not able to open. Unable to Process Submission"
             error_value = 1;
     else:
@@ -337,41 +335,13 @@ def get_column_names_from_SQL(full_sql_connect,pre_valid_db,current_file,check_n
                 curr_table =  [ele[0] for ele in curr_table if ele[0] not in values_to_ignore]
                 all_headers = all_headers + curr_table
     return all_headers
-def get_md5_value(s3_client,folder_name,Unzipped_key,temp_location,file_name):
-    obj_dict = s3_client.get_object(Bucket=folder_name, Key=(Unzipped_key + file_name))
-    etag = obj_dict['ETag']
-    etag = etag.strip('"')
-    md5_status = "Failure"
-    
-    blocksize = 2**20
-    res = 0
-    try:
-        m = hashlib.md5()
-        temp_location = "/" + temp_location + "/" + file_name
-        s3_client.download_file(folder_name, (Unzipped_key + file_name), temp_location)
-        with open(temp_location , "rb" ) as f:
-            while True:
-                buf = f.read(blocksize)
-                if not buf:
-                    break
-                m.update( buf )
-        res = m.hexdigest()
-    except Exception as e: 
-        print(e)
-    
-    if res == etag:
-        md5_status == "Matching"
-    return md5_status
 def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list,temp_location):
-    submitting_center = []  
-    submit_to_file = []           
+    submitting_center = []
+    submit_to_file = []      
     file_to_submit = []
-    md5_status = "Missing"
     valid_type = "NULL"
    
-    if "submission.csv" in full_name_list:
-        md5_status = get_md5_value(s3_client,folder_name, Unzipped_key,temp_location,"submission.csv")
-      
+    if "submission.csv" in full_name_list:      
         file_list_name = []
         file_list_value = []
         temp_location = "/" + temp_location + "/" + "submission.csv"
@@ -388,7 +358,7 @@ def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list,te
         submit_to_file = [i for i in submit_list if i not in full_name_list]  #in submission, not in zip
         file_to_submit = [i for i in full_name_list if i not in submit_list]  #in zip not in submission metadata
 
-    return submitting_center,submit_to_file,file_to_submit,valid_type,md5_status
+    return submitting_center,submit_to_file,file_to_submit,valid_type
 def update_validation_status(list_of_filesnames,validation_status,folder_name,Unzipped_key,validation_status_list,validation_file_location_list,
                              conn,sql_connect,submission_index,file_validation_date,Validation_Type):
     for filename in list_of_filesnames:
@@ -472,12 +442,11 @@ def move_submit_file_to_subfolder(Validation_Type,s3_client,bucket_name,org_key_
         s3_client.delete_object(Bucket=bucket_name, Key=org_key_name)           # Delete original object
 def check_column_names(s3_client,folder_name,Unzipped_key,submission_error_list,full_name_list,info_sql_connect,pre_valid_db,
                        check_name_list,list_of_valid_file_names,temp_location):
-    md5_status = "Missing"
+
     for filename in full_name_list:
         all_headers = get_column_names_from_SQL(info_sql_connect,pre_valid_db,filename,check_name_list,list_of_valid_file_names)
         all_headers = list(set(all_headers))
         if len(all_headers) > 0:
-            md5_status = get_md5_value(s3_client,folder_name, Unzipped_key,temp_location,filename)
       
             curr_location = "/" + temp_location + "/" + filename
             s3_client.download_file(folder_name, Unzipped_key + filename, curr_location)
@@ -495,7 +464,7 @@ def check_column_names(s3_client,folder_name,Unzipped_key,submission_error_list,
             for iterS in SQL_not_in_CSV:
                 error_msg = "Column name exists in Database, but is missing from CSV file"
                 submission_error_list.append([filename, iterS, error_msg])
-    return submission_error_list,md5_status
+    return submission_error_list
 def display_error_line(ex):
     trace = []
     tb = ex.__traceback__
