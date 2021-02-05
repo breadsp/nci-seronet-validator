@@ -66,7 +66,7 @@ def lambda_handler(event, context):
             sql_connect.close()
             conn.close()
             return {}
-        #####################################################################################################################
+#####################################################################################################################
         column_names_list = [];
         column_type_list = [];
         for col_name in desc:
@@ -78,7 +78,7 @@ def lambda_handler(event, context):
         file_location_index = column_names_list.index('file_location')
         file_index = 1;
         display_output = True
-        #####################################################################################################################
+#####################################################################################################################
         for row_data in rows:
             full_name_list = [];
             error_files = [];  # sets an empty file list incase file is not a zip
@@ -105,12 +105,13 @@ def lambda_handler(event, context):
             if first_folder_cut > -1:
                 org_key_name = full_bucket_name[(first_folder_cut + 1):]  # bucket the file is located in
                 bucket_name = full_bucket_name[:(first_folder_cut)]  # name of the file with in the bucket
-            #####################################################################################################################
+#####################################################################################################################
             print("## FileName Found    folder name :: " + bucket_name + "    key name :: " + org_key_name)
             submission_error_list = [['File_Name', 'Column_Name', 'Error_Message']]
             
             error_value, meta_error_msg, zip_obj = check_if_zip(s3_resource, bucket_name, org_key_name)
-
+            result_location = folder_name + "/" + Results_key + "Result_Message.txt"
+            
             if error_value > 0:
                 lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg,temp_location)
                 s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key)
@@ -173,13 +174,7 @@ def lambda_handler(event, context):
                 else:
                     meta_error_msg = "File is a valid Zipfile. No errors were found in submission. Files are good to proceed to Data Validation"
 
-                lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg,temp_location)
-                s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key + "Result_Message.txt")
-
                 full_name_list,error_files = filter_error_list(submission_error_list,full_name_list)
- 
-            result_location = folder_name + "/" + Results_key + "Result_Message.txt"
-            if (error_value == 0):
                 submission_error_list = check_column_names(s3_client,folder_name,Unzipped_key,submission_error_list,full_name_list,info_sql_connect,pre_valid_db,
                                                             check_name_list,list_of_valid_file_names,temp_location)
                 
@@ -188,7 +183,12 @@ def lambda_handler(event, context):
                 lambda_path = write_error_messages("Error_Results.csv", "csv", submission_error_list,temp_location)
                 s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key + "Error_Results.csv")
                 result_location = folder_name + "/" + Results_key + "Error_Results.csv"
-            ############################################################################################################################
+                meta_error_msg = ("File is a valid Zipfile. However there were " + str(len(submission_error_list) - 1) +
+                    " errors found in the submission.  A CSV file has been created contaning these errors")
+############################################################################################################################
+            lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg,temp_location)
+            s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key + "Result_Message.txt")
+############################################################################################################################
             if error_value > 0:
                 validation_status_list.append('FILE_VALIDATION_FAILURE')
                 validation_file_location_list.append(result_location)
@@ -209,10 +209,7 @@ def lambda_handler(event, context):
 
                 submission_index = write_submission_table(conn, sql_connect,org_file_id,file_location,
                                                           batch_validation_status, submit_validation_type, result_location)
-            if len(submission_error_list) > 1:
-                meta_error_msg = ("File is a valid Zipfile. However there were " + str(len(submission_error_list) - 1) +
-                    " errors found in the submission.  A CSV file has been created contaning these errors")
-            ################################################################################################################
+################################################################################################################
             error_files = [i for i in error_files if i in org_file_list]            #only files that were in orgional submission
             full_name_list = [i for i in full_name_list if i in org_file_list]      #only files that were in orgional submission
             
@@ -251,7 +248,7 @@ def lambda_handler(event, context):
                           'previous_function': "prevalidator", 'org_file_name': zip_file_name,"send_slack": send_slack, "send_email": send_email}
                 
                 update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure)
-    ###################################################################################################################
+###################################################################################################################
     except Exception as e:
         print(e)
         display_error_line(e)
@@ -265,7 +262,6 @@ def lambda_handler(event, context):
         if conn:
             conn.commit()
             conn.close()
-
 
     print('## All Files have been checked')
     return {}
