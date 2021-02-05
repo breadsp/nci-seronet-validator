@@ -337,15 +337,17 @@ def get_column_names_from_SQL(full_sql_connect,pre_valid_db,current_file,check_n
     return all_headers
 def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list,temp_location):
     submitting_center = []
-    submit_to_file = []      
+    submit_to_file = []
     file_to_submit = []
     valid_type = "NULL"
-   
-    if "submission.csv" in full_name_list:      
+
+    if "submission.csv" in full_name_list:
         file_list_name = []
         file_list_value = []
-        temp_location = "/" + temp_location + "/" + "submission.csv"
-        with open(temp_location, newline='') as csvfile:
+        curr_location = "/" + temp_location + "/" + "submission.csv"
+        s3_client.download_file(folder_name, Unzipped_key + "submission.csv", curr_location)
+        
+        with open(curr_location, newline='') as csvfile:
             file_reader = csv.reader(csvfile, delimiter=',', quotechar='|')
             for row in file_reader:
                 file_list_name.append(row[0])
