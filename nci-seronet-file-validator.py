@@ -171,10 +171,13 @@ def lambda_handler(event, context):
                     for i in submit_to_file:
                         error_msg = "file name was checked in submission.csv, but was not found in the submitted zip file"
                         submission_error_list.append([i,"All Columns", error_msg])
+                    error_msg = "Extra files are found in the submission.csv, please recheck submission"
+                    submission_error_list.append(["submission.csv","All Columns", error_msg])
                 else:
                     meta_error_msg = "File is a valid Zipfile. No errors were found in submission. Files are good to proceed to Data Validation"
 
                 full_name_list,error_files = filter_error_list(submission_error_list,full_name_list)
+
                 submission_error_list = check_column_names(s3_client,folder_name,Unzipped_key,submission_error_list,full_name_list,info_sql_connect,pre_valid_db,
                                                             check_name_list,list_of_valid_file_names,temp_location)
                 
@@ -224,7 +227,7 @@ def lambda_handler(event, context):
                                                                                              Validation_Type)
 
             validation_status_list, validation_file_location_list = update_validation_status(full_name_list,
-                                                                                             'FILE_VALIDATION_SUCCESS',
+                                                                                             'FILE_VALIDATION_IN_PROGRESS',
                                                                                              folder_name, Unzipped_key,
                                                                                              validation_status_list,
                                                                                              validation_file_location_list,
