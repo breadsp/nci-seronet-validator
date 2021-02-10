@@ -109,9 +109,12 @@ def lambda_handler(event, context):
             print("## FileName Found    folder name :: " + bucket_name + "    key name :: " + org_key_name)
             submission_error_list = [['File_Name', 'Column_Name', 'Error_Message']]
             
-            error_value, meta_error_msg, zip_obj = check_if_zip(s3_resource, bucket_name, org_key_name)
+            error_value, meta_error_msg, zip_obj = check_if_zip(s3_resource,s3_client, bucket_name, org_key_name)
+            if error_value == -1:
+                print("File was not found, unable to process.  Skipping this record and Continuing")
+                continue
             result_location = folder_name + "/" + Results_key + "Result_Message.txt"
-            
+
             if error_value > 0:
                 lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg,temp_location)
                 s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key)
@@ -153,7 +156,7 @@ def lambda_handler(event, context):
                                                                                                              Unzipped_key,
                                                                                                              full_name_list,
                                                                                                              temp_location)
-          
+                
                 full_name_list,error_files = filter_error_list(submission_error_list,full_name_list)
                 in_sub_but_wrong = [i for i in full_name_list if ((i not in check_name_list) and (i not in error_files))]
                 for i in in_sub_but_wrong:
@@ -207,7 +210,10 @@ def lambda_handler(event, context):
                 submission_index = 12345  # from the test case number
             else:
                 new_key = CBC_submission_name + '/' + CBC_submission_date + '/' + sub_folder + "/" + zip_file_name
-                move_submit_file_to_subfolder(Validation_Type, s3_client, bucket_name, org_key_name, new_key)
+                try:
+                    move_submit_file_to_subfolder(Validation_Type, s3_client, bucket_name, org_key_name, new_key)
+                except s3_client.exceptions.NoSuchKey:
+                    print("File was not found at this location.  Unable to move the file")
                 file_location = bucket_name + "/" + new_key
 
                 submission_index = write_submission_table(conn, sql_connect,org_file_id,file_location,
@@ -302,7 +308,7 @@ def get_rows_to_validate(event,conn,sql_connect,Validation_Type):
         desc = sql_connect.description                  #tuple list of column names
 
     return rows,desc,processing_table
-def check_if_zip(s3_resource,bucket_name,key_name):
+def check_if_zip(s3_resource,s3_client,bucket_name,key_name):
     z = []
     if(str(key_name).endswith('.zip')):                                       #Zip Extension was found
         try:
@@ -310,6 +316,9 @@ def check_if_zip(s3_resource,bucket_name,key_name):
             buffer = BytesIO(zip_obj.get()["Body"].read())                  #creates a temp storage for file
             z = zipfile.ZipFile(buffer)                                     #unzips the contents into temp storage
             error_value = 0;
+        except s3_client.exceptions.NoSuchKey:
+            error_value = -1
+        try:
             meta_error_msg = "File was sucessfully unzipped"
         except Exception as e:
             print(e)
