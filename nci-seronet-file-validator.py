@@ -210,10 +210,7 @@ def lambda_handler(event, context):
                 submission_index = 12345  # from the test case number
             else:
                 new_key = CBC_submission_name + '/' + CBC_submission_date + '/' + sub_folder + "/" + zip_file_name
-                try:
-                    move_submit_file_to_subfolder(Validation_Type, s3_client, bucket_name, org_key_name, new_key)
-                except s3_client.exceptions.NoSuchKey:
-                    print("File was not found at this location.  Unable to move the file")
+                move_submit_file_to_subfolder(Validation_Type, s3_client, bucket_name, org_key_name, new_key)
                 file_location = bucket_name + "/" + new_key
 
                 submission_index = write_submission_table(conn, sql_connect,org_file_id,file_location,
@@ -316,10 +313,10 @@ def check_if_zip(s3_resource,s3_client,bucket_name,key_name):
             buffer = BytesIO(zip_obj.get()["Body"].read())                  #creates a temp storage for file
             z = zipfile.ZipFile(buffer)                                     #unzips the contents into temp storage
             error_value = 0;
-        except s3_client.exceptions.NoSuchKey:
-            error_value = -1
-        try:
             meta_error_msg = "File was sucessfully unzipped"
+        except s3_client.exceptions.NoSuchKey:
+            meta_error_msg = "File was does not exist in location specified"
+            error_value = -1
         except Exception as e:
             print(e)
             meta_error_msg = "Zip file was found, but not able to open. Unable to Process Submission"
