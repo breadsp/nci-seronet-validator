@@ -109,9 +109,12 @@ def lambda_handler(event, context):
             print("## FileName Found    folder name :: " + bucket_name + "    key name :: " + org_key_name)
             submission_error_list = [['File_Name', 'Column_Name', 'Error_Message']]
             
-            error_value, meta_error_msg, zip_obj = check_if_zip(s3_resource, bucket_name, org_key_name)
+            error_value, meta_error_msg, zip_obj = check_if_zip(s3_resource,s3_client, bucket_name, org_key_name)
+            if error_value == -1:
+                print("File was not found, unable to process.  Skipping this record and Continuing")
+                continue
             result_location = folder_name + "/" + Results_key + "Result_Message.txt"
-            
+
             if error_value > 0:
                 lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg,temp_location)
                 s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key)
@@ -153,7 +156,7 @@ def lambda_handler(event, context):
                                                                                                              Unzipped_key,
                                                                                                              full_name_list,
                                                                                                              temp_location)
-          
+                
                 full_name_list,error_files = filter_error_list(submission_error_list,full_name_list)
                 in_sub_but_wrong = [i for i in full_name_list if ((i not in check_name_list) and (i not in error_files))]
                 for i in in_sub_but_wrong:
@@ -171,10 +174,13 @@ def lambda_handler(event, context):
                     for i in submit_to_file:
                         error_msg = "file name was checked in submission.csv, but was not found in the submitted zip file"
                         submission_error_list.append([i,"All Columns", error_msg])
+                    error_msg = "Extra files are found in the submission.csv, please recheck submission"
+                    submission_error_list.append(["submission.csv","All Columns", error_msg])
                 else:
                     meta_error_msg = "File is a valid Zipfile. No errors were found in submission. Files are good to proceed to Data Validation"
 
                 full_name_list,error_files = filter_error_list(submission_error_list,full_name_list)
+
                 submission_error_list = check_column_names(s3_client,folder_name,Unzipped_key,submission_error_list,full_name_list,info_sql_connect,pre_valid_db,
                                                             check_name_list,list_of_valid_file_names,temp_location)
                 
@@ -224,7 +230,7 @@ def lambda_handler(event, context):
                                                                                              Validation_Type)
 
             validation_status_list, validation_file_location_list = update_validation_status(full_name_list,
-                                                                                             'FILE_VALIDATION_SUCCESS',
+                                                                                             'FILE_VALIDATION_IN_PROGRESS',
                                                                                              folder_name, Unzipped_key,
                                                                                              validation_status_list,
                                                                                              validation_file_location_list,
@@ -299,7 +305,7 @@ def get_rows_to_validate(event,conn,sql_connect,Validation_Type):
         desc = sql_connect.description                  #tuple list of column names
 
     return rows,desc,processing_table
-def check_if_zip(s3_resource,bucket_name,key_name):
+def check_if_zip(s3_resource,s3_client,bucket_name,key_name):
     z = []
     if(str(key_name).endswith('.zip')):                                       #Zip Extension was found
         try:
@@ -308,6 +314,9 @@ def check_if_zip(s3_resource,bucket_name,key_name):
             z = zipfile.ZipFile(buffer)                                     #unzips the contents into temp storage
             error_value = 0;
             meta_error_msg = "File was sucessfully unzipped"
+        except s3_client.exceptions.NoSuchKey:
+            meta_error_msg = "File was does not exist in location specified"
+            error_value = -1
         except Exception as e:
             print(e)
             meta_error_msg = "Zip file was found, but not able to open. Unable to Process Submission"
