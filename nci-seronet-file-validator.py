@@ -199,6 +199,7 @@ def lambda_handler(event, context):
                 validation_status_list.append('FILE_VALIDATION_FAILURE')
                 validation_file_location_list.append(result_location)
                 batch_validation_status = "Batch_Validation_FAILURE"
+                submit_validation_type = "NULL"
 
             if len(submission_error_list) > 1:
                 batch_validation_status = "Batch_Validation_FAILURE"
@@ -315,7 +316,6 @@ def check_if_zip(s3_resource,s3_client,bucket_name,key_name):
             error_value = 0;
             meta_error_msg = "File was sucessfully unzipped"
         except s3_client.exceptions.NoSuchKey:
-            meta_error_msg = "File was does not exist in location specified"
             error_value = -1
         except Exception as e:
             print(e)
