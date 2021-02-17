@@ -110,6 +110,11 @@ def lambda_handler(event, context):
             submission_error_list = [['File_Name', 'Column_Name', 'Error_Message']]
             
             error_value, meta_error_msg, zip_obj = check_if_zip(s3_resource,s3_client, bucket_name, org_key_name)
+            if error_value == 0:
+                if len(zip_obj.namelist()) == 0:
+                    error_value = 3
+                    meta_error_msg = "File is a valid Zip, however this an empty file"
+
             if error_value == -1:
                 print("File was not found, unable to process.  Skipping this record and Continuing")
                 continue
@@ -254,6 +259,7 @@ def lambda_handler(event, context):
                           'validation_status_list': validation_status_list, 'full_name_list': full_name_list,
                           'previous_function': "prevalidator", 'org_file_name': zip_file_name,"send_slack": send_slack, "send_email": send_email}
                 
+                print(result)
                 update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure)
 ###################################################################################################################
     except Exception as e:
@@ -425,11 +431,11 @@ def write_error_messages(result_name,file_type,error_output,temp_location):
 
     return lambda_path
 def update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure):
-
+    sql_connect.fetchall()
     if Validation_Type == TEST_MODE:
         file_submitted_by="'"+ row_data[9]+"'"
     else:
-        table_sql_str = ("UPDATE table_file_remover  Set file_status = 'FILE_Processed'"
+        table_sql_str = ("UPDATE table_file_remover  Set file_status = 'FILE_Processed' "
         "Where file_status = 'COPY_SUCCESSFUL' and file_location = %s")
         
         sql_connect.execute(table_sql_str,(full_bucket_name,))           #mysql command that changes the file-action flag so file wont be used again
