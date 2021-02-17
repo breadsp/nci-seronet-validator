@@ -432,7 +432,6 @@ def write_error_messages(result_name,file_type,error_output,temp_location):
 
     return lambda_path
 def update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure):
-    sql_connect.fetchall()
     if Validation_Type == TEST_MODE:
         file_submitted_by="'"+ row_data[9]+"'"
     else:
