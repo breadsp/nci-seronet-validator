@@ -322,6 +322,7 @@ def check_if_zip(s3_resource,s3_client,bucket_name,key_name):
             error_value = 0;
             meta_error_msg = "File was sucessfully unzipped"
         except s3_client.exceptions.NoSuchKey:
+            meta_error_msg = "File was does not exist in location specified"
             error_value = -1
         except Exception as e:
             print(e)
