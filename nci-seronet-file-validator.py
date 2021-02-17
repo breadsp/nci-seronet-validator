@@ -30,6 +30,7 @@ def lambda_handler(event, context):
     eastern = dateutil.tz.gettz('US/Eastern')                                   #converts time into Eastern time zone (def is UTC)
     file_validation_date = datetime.datetime.now(tz=eastern).strftime("%Y-%m-%d %H:%M:%S")
     temp_location = "tmp"
+    status_flag = "Valid"
 
     list_of_valid_file_names = [("demographic.csv",["Demographic_Data","Comorbidity","Prior_Covid_Outcome","Submission_MetaData"]),
          ("assay.csv",["Assay_Metadata"]),
@@ -80,170 +81,177 @@ def lambda_handler(event, context):
         display_output = True
 #####################################################################################################################
         for row_data in rows:
-            full_name_list = [];
-            error_files = [];  # sets an empty file list incase file is not a zip
-            validation_status_list = []  # file status for each file with in the submission
-            validation_file_location_list = []  # location of each file with in the submission
-
-            current_row = list(row_data)  # Current row function is interating on
-            full_bucket_name = current_row[file_location_index]
-
-            zip_file_name = current_row[file_name_index]  # name of the submitted file
-            org_file_id = current_row[file_id_index]  # value of orgional ID from SQL table
-            name_parts_list = full_bucket_name.split("/")  # parse the file name path
-            folder_name = name_parts_list[0]  # bucket name
-            CBC_submission_name = name_parts_list[1]  # CBC name
-            CBC_submission_date = name_parts_list[2]  # CBC submission date
-            CBC_submission_date = str(CBC_submission_date)  # convert submission date to a string for later use
-
-            sub_folder = "submission_%03d_%s" % (file_index, zip_file_name)
-            file_index = file_index + 1
-            Results_key = CBC_submission_name + '/' + CBC_submission_date + '/' + sub_folder + "/File_Validation_Results/"
-            Unzipped_key = CBC_submission_name + '/' + CBC_submission_date + '/' + sub_folder + "/UnZipped_Files/"
-
-            first_folder_cut = full_bucket_name.find('/')  # only seperate on first '/' to get bucket and key info
-            if first_folder_cut > -1:
-                org_key_name = full_bucket_name[(first_folder_cut + 1):]  # bucket the file is located in
-                bucket_name = full_bucket_name[:(first_folder_cut)]  # name of the file with in the bucket
-#####################################################################################################################
-            print("## FileName Found    folder name :: " + bucket_name + "    key name :: " + org_key_name)
-            submission_error_list = [['File_Name', 'Column_Name', 'Error_Message']]
-            
-            error_value, meta_error_msg, zip_obj = check_if_zip(s3_resource,s3_client, bucket_name, org_key_name)
-            if error_value == 0:
-                if len(zip_obj.namelist()) == 0:
-                    error_value = 3
-                    meta_error_msg = "File is a valid Zip, however this an empty file"
-
-            if error_value == -1:
-                print("File was not found, unable to process.  Skipping this record and Continuing")
-                continue
-            result_location = folder_name + "/" + Results_key + "Result_Message.txt"
-
-            if error_value > 0:
+            try:
+                full_name_list = [];
+                error_files = [];  # sets an empty file list incase file is not a zip
+                validation_status_list = []  # file status for each file with in the submission
+                validation_file_location_list = []  # location of each file with in the submission
+    
+                current_row = list(row_data)  # Current row function is interating on
+                full_bucket_name = current_row[file_location_index]
+    
+                zip_file_name = current_row[file_name_index]  # name of the submitted file
+                org_file_id = current_row[file_id_index]  # value of orgional ID from SQL table
+                name_parts_list = full_bucket_name.split("/")  # parse the file name path
+                folder_name = name_parts_list[0]  # bucket name
+                CBC_submission_name = name_parts_list[1]  # CBC name
+                CBC_submission_date = name_parts_list[2]  # CBC submission date
+                CBC_submission_date = str(CBC_submission_date)  # convert submission date to a string for later use
+    
+                sub_folder = "submission_%03d_%s" % (file_index, zip_file_name)
+                file_index = file_index + 1
+                Results_key = CBC_submission_name + '/' + CBC_submission_date + '/' + sub_folder + "/File_Validation_Results/"
+                Unzipped_key = CBC_submission_name + '/' + CBC_submission_date + '/' + sub_folder + "/UnZipped_Files/"
+    
+                first_folder_cut = full_bucket_name.find('/')  # only seperate on first '/' to get bucket and key info
+                if first_folder_cut > -1:
+                    org_key_name = full_bucket_name[(first_folder_cut + 1):]  # bucket the file is located in
+                    bucket_name = full_bucket_name[:(first_folder_cut)]  # name of the file with in the bucket
+    #####################################################################################################################
+                print("## FileName Found    folder name :: " + bucket_name + "    key name :: " + org_key_name)
+                submission_error_list = [['File_Name', 'Column_Name', 'Error_Message']]
+                
+                error_value, meta_error_msg, zip_obj = check_if_zip(s3_resource,s3_client, bucket_name, org_key_name)
+                if error_value == 0:
+                    if len(zip_obj.namelist()) == 0:
+                        error_value = 3
+                        meta_error_msg = "File is a valid Zip, however this an empty file"
+    
+                if error_value == -1:
+                    print("File was not found, unable to process.  Skipping this record and Continuing")
+                    continue
+                result_location = folder_name + "/" + Results_key + "Result_Message.txt"
+    
+                if error_value > 0:
+                    lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg,temp_location)
+                    s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key)
+    
+                if error_value == 0:  # only examime contents of file if sucessfully unziped
+                    org_file_list = zip_obj.namelist()
+                    full_name_list = zip_obj.namelist()
+                    for current_name in full_name_list:
+                        # move unziped files from temp storage back into orgional bucket
+                        s3_resource.meta.client.upload_fileobj(zip_obj.open(current_name), Bucket=folder_name,Key=Unzipped_key + current_name)
+    
+                        if not current_name.endswith('.csv'):
+                            submission_error_list.append(
+                                [current_name, "All Columns", "File Is not a CSV file, Unable to Process"])
+                        indices = [i for i, x in enumerate(full_name_list) if
+                                   x == current_name]  # checks for duplicate file name entries
+                        if len(indices) > 1:
+                            submission_error_list.append([current_name, "All Columns", "Filename was found " + str(
+                                len(indices)) + " times in submission, Can not process multiple copies"]);
+                        wrong_count = len(current_name)
+                        check_name_list = [i[0] for i in list_of_valid_file_names]
+                        for valid in check_name_list:
+                            sequence = difflib.SequenceMatcher(isjunk=None, a=current_name, b=valid).ratio()
+                            matching_letters = (sequence / 2) * (len(valid) + len(current_name))
+                            wrong_letters = len(current_name) - matching_letters
+                            if wrong_letters < wrong_count:
+                                wrong_count = wrong_letters
+                        if wrong_count == 0:  # perfect match, no errors
+                            pass
+                        elif wrong_count <= 3:  # up to 3 letters wrong, possible mispelled
+                            submission_error_list.append([current_name, "All Columns",
+                                                          "Filename was possibly alterted, potenial typo, please correct and resubmit file"])
+                        elif wrong_count > 3:  # more then 3 letters wrong, name not recongized
+                            submission_error_list.append([current_name, "All Columns",
+                                                          "Filename was not recgonized, please correct and resubmit file"])
+    
+                    submit_CBC, submit_to_file, file_to_submit, submit_validation_type = get_submission_metadata(s3_client,
+                                                                                                                 folder_name,
+                                                                                                                 Unzipped_key,
+                                                                                                                 full_name_list,
+                                                                                                                 temp_location)
+                    
+                    full_name_list,error_files = filter_error_list(submission_error_list,full_name_list)
+                    in_sub_but_wrong = [i for i in full_name_list if ((i not in check_name_list) and (i not in error_files))]
+                    for i in in_sub_but_wrong:
+                        error_msg = "filename is not expected as part of submission."
+                        submission_error_list.append([i, "All Columns", error_msg])
+                    if len(submit_CBC) == 0:
+                        error_msg = "submission.csv was not found in submission zip file"
+                        submission_error_list.append(["submission.csv", "All Columns", error_msg])
+                    if len(file_to_submit) > 0:
+                        for i in file_to_submit:
+                            if i != "submission.csv":
+                                error_msg = "file name was found in the submitted zip, but was not checked in submission.csv"
+                                submission_error_list.append([i, "All Columns", error_msg])
+                    if len(submit_to_file) > 0:
+                        for i in submit_to_file:
+                            error_msg = "file name was checked in submission.csv, but was not found in the submitted zip file"
+                            submission_error_list.append([i,"All Columns", error_msg])
+                        error_msg = "Extra files are found in the submission.csv, please recheck submission"
+                        submission_error_list.append(["submission.csv","All Columns", error_msg])
+                    else:
+                        meta_error_msg = "File is a valid Zipfile. No errors were found in submission. Files are good to proceed to Data Validation"
+    
+                    full_name_list,error_files = filter_error_list(submission_error_list,full_name_list)
+    
+                    submission_error_list = check_column_names(s3_client,folder_name,Unzipped_key,submission_error_list,full_name_list,info_sql_connect,pre_valid_db,
+                                                                check_name_list,list_of_valid_file_names,temp_location)
+                    
+                    full_name_list,error_files = filter_error_list(submission_error_list,full_name_list)
+                if len(submission_error_list) > 1:  # if submission errors are found, write coresponding csv file
+                    lambda_path = write_error_messages("Error_Results.csv", "csv", submission_error_list,temp_location)
+                    s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key + "Error_Results.csv")
+                    result_location = folder_name + "/" + Results_key + "Error_Results.csv"
+                    meta_error_msg = ("File is a valid Zipfile. However there were " + str(len(submission_error_list) - 1) +
+                        " errors found in the submission.  A CSV file has been created contaning these errors")
+    ############################################################################################################################
                 lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg,temp_location)
-                s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key)
-
-            if error_value == 0:  # only examime contents of file if sucessfully unziped
-                org_file_list = zip_obj.namelist()
-                full_name_list = zip_obj.namelist()
-                for current_name in full_name_list:
-                    # move unziped files from temp storage back into orgional bucket
-                    s3_resource.meta.client.upload_fileobj(zip_obj.open(current_name), Bucket=folder_name,Key=Unzipped_key + current_name)
-
-                    if not current_name.endswith('.csv'):
-                        submission_error_list.append(
-                            [current_name, "All Columns", "File Is not a CSV file, Unable to Process"])
-                    indices = [i for i, x in enumerate(full_name_list) if
-                               x == current_name]  # checks for duplicate file name entries
-                    if len(indices) > 1:
-                        submission_error_list.append([current_name, "All Columns", "Filename was found " + str(
-                            len(indices)) + " times in submission, Can not process multiple copies"]);
-                    wrong_count = len(current_name)
-                    check_name_list = [i[0] for i in list_of_valid_file_names]
-                    for valid in check_name_list:
-                        sequence = difflib.SequenceMatcher(isjunk=None, a=current_name, b=valid).ratio()
-                        matching_letters = (sequence / 2) * (len(valid) + len(current_name))
-                        wrong_letters = len(current_name) - matching_letters
-                        if wrong_letters < wrong_count:
-                            wrong_count = wrong_letters
-                    if wrong_count == 0:  # perfect match, no errors
-                        pass
-                    elif wrong_count <= 3:  # up to 3 letters wrong, possible mispelled
-                        submission_error_list.append([current_name, "All Columns",
-                                                      "Filename was possibly alterted, potenial typo, please correct and resubmit file"])
-                    elif wrong_count > 3:  # more then 3 letters wrong, name not recongized
-                        submission_error_list.append([current_name, "All Columns",
-                                                      "Filename was not recgonized, please correct and resubmit file"])
-
-                submit_CBC, submit_to_file, file_to_submit, submit_validation_type = get_submission_metadata(s3_client,
-                                                                                                             folder_name,
-                                                                                                             Unzipped_key,
-                                                                                                             full_name_list,
-                                                                                                             temp_location)
-                
-                full_name_list,error_files = filter_error_list(submission_error_list,full_name_list)
-                in_sub_but_wrong = [i for i in full_name_list if ((i not in check_name_list) and (i not in error_files))]
-                for i in in_sub_but_wrong:
-                    error_msg = "filename is not expected as part of submission."
-                    submission_error_list.append([i, "All Columns", error_msg])
-                if len(submit_CBC) == 0:
-                    error_msg = "submission.csv was not found in submission zip file"
-                    submission_error_list.append(["submission.csv", "All Columns", error_msg])
-                if len(file_to_submit) > 0:
-                    for i in file_to_submit:
-                        if i != "submission.csv":
-                            error_msg = "file name was found in the submitted zip, but was not checked in submission.csv"
-                            submission_error_list.append([i, "All Columns", error_msg])
-                if len(submit_to_file) > 0:
-                    for i in submit_to_file:
-                        error_msg = "file name was checked in submission.csv, but was not found in the submitted zip file"
-                        submission_error_list.append([i,"All Columns", error_msg])
-                    error_msg = "Extra files are found in the submission.csv, please recheck submission"
-                    submission_error_list.append(["submission.csv","All Columns", error_msg])
+                s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key + "Result_Message.txt")
+    ############################################################################################################################
+                if error_value > 0:
+                    validation_status_list.append('FILE_VALIDATION_FAILURE')
+                    validation_file_location_list.append(result_location)
+                    batch_validation_status = "Batch_Validation_FAILURE"
+                    submit_validation_type = "NULL"
+    
+                if len(submission_error_list) > 1:
+                    batch_validation_status = "Batch_Validation_FAILURE"
                 else:
-                    meta_error_msg = "File is a valid Zipfile. No errors were found in submission. Files are good to proceed to Data Validation"
-
-                full_name_list,error_files = filter_error_list(submission_error_list,full_name_list)
-
-                submission_error_list = check_column_names(s3_client,folder_name,Unzipped_key,submission_error_list,full_name_list,info_sql_connect,pre_valid_db,
-                                                            check_name_list,list_of_valid_file_names,temp_location)
+                    batch_validation_status = "Batch_Validation_SUCCESS"
+    
+                if Validation_Type == TEST_MODE:  # if in test mode do not write the to the submission file
+                    print("Validation is being run in TestMode, NOT writting to submission table")
+                    submission_index = 12345  # from the test case number
+                else:
+                    new_key = CBC_submission_name + '/' + CBC_submission_date + '/' + sub_folder + "/" + zip_file_name
+                    move_submit_file_to_subfolder(Validation_Type, s3_client, bucket_name, org_key_name, new_key)
+                    file_location = bucket_name + "/" + new_key
+    
+                    submission_index = write_submission_table(conn, sql_connect,org_file_id,file_location,
+                                                              batch_validation_status, submit_validation_type, result_location)
+    ################################################################################################################
+                error_files = [i for i in error_files if i in org_file_list]            #only files that were in orgional submission
+                full_name_list = [i for i in full_name_list if i in org_file_list]      #only files that were in orgional submission
                 
-                full_name_list,error_files = filter_error_list(submission_error_list,full_name_list)
-            if len(submission_error_list) > 1:  # if submission errors are found, write coresponding csv file
-                lambda_path = write_error_messages("Error_Results.csv", "csv", submission_error_list,temp_location)
-                s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key + "Error_Results.csv")
-                result_location = folder_name + "/" + Results_key + "Error_Results.csv"
-                meta_error_msg = ("File is a valid Zipfile. However there were " + str(len(submission_error_list) - 1) +
-                    " errors found in the submission.  A CSV file has been created contaning these errors")
-############################################################################################################################
-            lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg,temp_location)
-            s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key + "Result_Message.txt")
-############################################################################################################################
-            if error_value > 0:
-                validation_status_list.append('FILE_VALIDATION_FAILURE')
-                validation_file_location_list.append(result_location)
-                batch_validation_status = "Batch_Validation_FAILURE"
-                submit_validation_type = "NULL"
-
-            if len(submission_error_list) > 1:
-                batch_validation_status = "Batch_Validation_FAILURE"
-            else:
-                batch_validation_status = "Batch_Validation_SUCCESS"
-
-            if Validation_Type == TEST_MODE:  # if in test mode do not write the to the submission file
-                print("Validation is being run in TestMode, NOT writting to submission table")
-                submission_index = 12345  # from the test case number
-            else:
-                new_key = CBC_submission_name + '/' + CBC_submission_date + '/' + sub_folder + "/" + zip_file_name
-                move_submit_file_to_subfolder(Validation_Type, s3_client, bucket_name, org_key_name, new_key)
-                file_location = bucket_name + "/" + new_key
-
-                submission_index = write_submission_table(conn, sql_connect,org_file_id,file_location,
-                                                          batch_validation_status, submit_validation_type, result_location)
-################################################################################################################
-            error_files = [i for i in error_files if i in org_file_list]            #only files that were in orgional submission
-            full_name_list = [i for i in full_name_list if i in org_file_list]      #only files that were in orgional submission
-            
-            validation_status_list, validation_file_location_list = update_validation_status(error_files,
-                                                                                             'FILE_VALIDATION_FAILURE',
-                                                                                             folder_name, Unzipped_key,
-                                                                                             validation_status_list,
-                                                                                             validation_file_location_list,
-                                                                                             conn, sql_connect,
-                                                                                             submission_index,
-                                                                                             file_validation_date,
-                                                                                             Validation_Type)
-
-            validation_status_list, validation_file_location_list = update_validation_status(full_name_list,
-                                                                                             'FILE_VALIDATION_IN_PROGRESS',
-                                                                                             folder_name, Unzipped_key,
-                                                                                             validation_status_list,
-                                                                                             validation_file_location_list,
-                                                                                             conn, sql_connect,
-                                                                                             submission_index,
-                                                                                             file_validation_date,
-                                                                                             Validation_Type)
+                validation_status_list, validation_file_location_list = update_validation_status(error_files,
+                                                                                                 'FILE_VALIDATION_FAILURE',
+                                                                                                 folder_name, Unzipped_key,
+                                                                                                 validation_status_list,
+                                                                                                 validation_file_location_list,
+                                                                                                 conn, sql_connect,
+                                                                                                 submission_index,
+                                                                                                 file_validation_date,
+                                                                                                 Validation_Type)
+    
+                validation_status_list, validation_file_location_list = update_validation_status(full_name_list,
+                                                                                                 'FILE_VALIDATION_IN_PROGRESS',
+                                                                                                 folder_name, Unzipped_key,
+                                                                                                 validation_status_list,
+                                                                                                 validation_file_location_list,
+                                                                                                 conn, sql_connect,
+                                                                                                 submission_index,
+                                                                                                 file_validation_date,
+                                                                                                 Validation_Type)
+            except Exception as e:
+                display_error_line(e)
+                meta_error_msg = "Error was found during File Validation"
+                full_name_list = ["Error was found"]
+                validation_status_list = ['FILE_VALIDATION_FAILURE']
+                status_flag = "Error"
             if display_output:
                 if error_value == 0:
                     full_name_list = error_files + full_name_list;
@@ -259,11 +267,9 @@ def lambda_handler(event, context):
                           'validation_status_list': validation_status_list, 'full_name_list': full_name_list,
                           'previous_function': "prevalidator", 'org_file_name': zip_file_name,"send_slack": send_slack, "send_email": send_email}
                 
-                print(result)
-                update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure)
+            update_jobs_table_write_to_slack(sql_connect,Validation_Type,status_flag,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure)
 ###################################################################################################################
     except Exception as e:
-        print(e)
         display_error_line(e)
         print("Terminating Validation Process")
 
@@ -431,12 +437,16 @@ def write_error_messages(result_name,file_type,error_output,temp_location):
                 csv_writer.writerow(file_indx)
 
     return lambda_path
-def update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure):
+def update_jobs_table_write_to_slack(sql_connect,Validation_Type,status_flag,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure):
     if Validation_Type == TEST_MODE:
         file_submitted_by="'"+ row_data[9]+"'"
     else:
-        table_sql_str = ("UPDATE table_file_remover  Set file_status = 'FILE_Processed' "
-        "Where file_status = 'COPY_SUCCESSFUL' and file_location = %s")
+        if status_flag == "Valid":
+            table_sql_str = ("UPDATE table_file_remover  Set file_status = 'FILE_Processed' "
+            "Where file_status = 'COPY_SUCCESSFUL' and file_location = %s")
+        elif status_flag == "Error":
+            table_sql_str = ("UPDATE table_file_remover  Set file_status = 'UNABLE_To_Process_File' "
+            "Where file_status = 'COPY_SUCCESSFUL' and file_location = %s")
         
         sql_connect.execute(table_sql_str,(full_bucket_name,))           #mysql command that changes the file-action flag so file wont be used again
 
