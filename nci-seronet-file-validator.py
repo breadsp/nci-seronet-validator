@@ -1,7 +1,6 @@
 import boto3                    #used to connect to aws servies
 from io import BytesIO          #used to convert file into bytes in order to unzip
 import zipfile                  #used to unzip the incomming file
-from mysql.connector import FieldType   #get the mysql field type in case formating is necessary
 import mysql.connector
 import datetime
 import dateutil.tz
@@ -22,27 +21,15 @@ def lambda_handler(event, context):
     host_client = ssm.get_parameter(Name="db_host", WithDecryption=True).get("Parameter").get("Value")
     user_name = ssm.get_parameter(Name="lambda_db_username", WithDecryption=True).get("Parameter").get("Value")
     user_password =ssm.get_parameter(Name="lambda_db_password", WithDecryption=True).get("Parameter").get("Value")
-    file_dbname = ssm.get_parameter(Name="jobs_db_name", WithDecryption=True).get("Parameter").get("Value")
-    pre_valid_db = ssm.get_parameter(Name="Prevalidated_DB", WithDecryption=True).get("Parameter").get("Value")
+    jobs_dbname = ssm.get_parameter(Name="jobs_db_name", WithDecryption=True).get("Parameter").get("Value")
     TopicArn_Success = ssm.get_parameter(Name="TopicArn_Success", WithDecryption=True).get("Parameter").get("Value")
     TopicArn_Failure = ssm.get_parameter(Name="TopicArn_Failure", WithDecryption=True).get("Parameter").get("Value")
-
     eastern = dateutil.tz.gettz('US/Eastern')                                   #converts time into Eastern time zone (def is UTC)
     file_validation_date = datetime.datetime.now(tz=eastern).strftime("%Y-%m-%d %H:%M:%S")
     temp_location = "tmp"
-    status_flag = "Valid"
 
-    list_of_valid_file_names = [("demographic.csv",["Demographic_Data","Comorbidity","Prior_Covid_Outcome","Submission_MetaData"]),
-         ("assay.csv",["Assay_Metadata"]),
-         ("assay_target.csv",["Assay_Target"]),
-         ("biospecimen.csv",["Biospecimen","Collection_Tube"]),
-         ("prior_clinical_test.csv",["Prior_Test_Result"]),
-         ("aliquot.csv",["Aliquot","Aliquot_Tube"]),
-         ("equipment.csv",["Equipment"]),
-         ("confirmatory_clinical_test.csv",["Confirmatory_Test_Result"]),
-         ("reagent.csv",["Reagent"]),
-         ("consumable.csv",["Consumable"]),
-         ("submission.csv",[])]
+    list_of_valid_file_names = ["demographic.csv","assay.csv", "assay_target.csv","biospecimen.csv", "prior_clinical_test.csv",
+         "aliquot.csv","equipment.csv","confirmatory_clinical_test.csv","reagent.csv", "consumable.csv","submission.csv"]
 
     Validation_Type = DB_MODE
     if 'testMode' in event:
@@ -51,16 +38,10 @@ def lambda_handler(event, context):
 #####################################################################################################################
 ## connect to the mySQL jobs table and pull records needed to process
     conn = None
-    sql_connect = None
     try:
-        conn = mysql.connector.connect(user=user_name, host=host_client, password=user_password, database=file_dbname)
-        print("SUCCESS: Connection to RDS mysql instance succeeded for " + file_dbname)
+        conn = mysql.connector.connect(host = host_client, user=user_name, password=user_password, db=jobs_dbname, connect_timeout=5)
+        print("SUCCESS: Connection to RDS mysql instance succeeded for " + jobs_dbname)
         sql_connect = conn.cursor(prepared=True)
-        
-        full_conn = mysql.connector.connect(user=user_name, host=host_client, password=user_password, database="INFORMATION_SCHEMA")
-        print("SUCCESS: Connection to RDS mysql instance succeeded for INFORMATION_SCHEMA")
-        info_sql_connect = full_conn.cursor(prepared=True)
-        
         rows, desc, processing_table = get_rows_to_validate(event, conn, sql_connect, Validation_Type)
         if processing_table == 0:
             print('## Database has been checked, NO new files were found to process.  Closing the connections ##')
@@ -69,33 +50,30 @@ def lambda_handler(event, context):
             return {}
 #####################################################################################################################
         column_names_list = [];
-        column_type_list = [];
         for col_name in desc:
             column_names_list.append(col_name[0])  # converts tubple names in list of names
-            column_type_list.append(FieldType.get_info(col_name[1]))  # type of variable
 
         file_id_index = column_names_list.index('file_id')
         file_name_index = column_names_list.index('file_name')
         file_location_index = column_names_list.index('file_location')
-        file_index = 1;
+        file_index = 1
         display_output = True
 #####################################################################################################################
         for row_data in rows:
             try:
                 full_name_list = [];
-                error_files = [];  # sets an empty file list incase file is not a zip
-                validation_status_list = []  # file status for each file with in the submission
+                error_files = [];                   # sets an empty file list incase file is not a zip
+                validation_status_list = []         # file status for each file with in the submission
                 validation_file_location_list = []  # location of each file with in the submission
-    
-                current_row = list(row_data)  # Current row function is interating on
+                current_row = list(row_data)        # Current row function is interating on
                 full_bucket_name = current_row[file_location_index]
     
-                zip_file_name = current_row[file_name_index]  # name of the submitted file
-                org_file_id = current_row[file_id_index]  # value of orgional ID from SQL table
-                name_parts_list = full_bucket_name.split("/")  # parse the file name path
-                folder_name = name_parts_list[0]  # bucket name
-                CBC_submission_name = name_parts_list[1]  # CBC name
-                CBC_submission_date = name_parts_list[2]  # CBC submission date
+                zip_file_name = current_row[file_name_index]    # name of the submitted file
+                org_file_id = current_row[file_id_index]        # value of orgional ID from SQL table
+                name_parts_list = full_bucket_name.split("/")   # parse the file name path
+                folder_name = name_parts_list[0]                # bucket name
+                CBC_submission_name = name_parts_list[1]        # CBC name
+                CBC_submission_date = name_parts_list[2]        # CBC submission date
                 CBC_submission_date = str(CBC_submission_date)  # convert submission date to a string for later use
     
                 sub_folder = "submission_%03d_%s" % (file_index, zip_file_name)
@@ -107,21 +85,18 @@ def lambda_handler(event, context):
                 if first_folder_cut > -1:
                     org_key_name = full_bucket_name[(first_folder_cut + 1):]  # bucket the file is located in
                     bucket_name = full_bucket_name[:(first_folder_cut)]  # name of the file with in the bucket
-    #####################################################################################################################
+#####################################################################################################################
                 print("## FileName Found    folder name :: " + bucket_name + "    key name :: " + org_key_name)
                 submission_error_list = [['File_Name', 'Column_Name', 'Error_Message']]
-                
                 error_value, meta_error_msg, zip_obj = check_if_zip(s3_resource,s3_client, bucket_name, org_key_name)
                 if error_value == 0:
                     if len(zip_obj.namelist()) == 0:
                         error_value = 3
-                        meta_error_msg = "File is a valid Zip, however this an empty file"
-    
+                        meta_error_msg = "File is a valid Zip, however this an empty file"            
                 if error_value == -1:
                     print("File was not found, unable to process.  Skipping this record and Continuing")
                     continue
                 result_location = folder_name + "/" + Results_key + "Result_Message.txt"
-    
                 if error_value > 0:
                     lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg,temp_location)
                     s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key)
@@ -142,8 +117,7 @@ def lambda_handler(event, context):
                             submission_error_list.append([current_name, "All Columns", "Filename was found " + str(
                                 len(indices)) + " times in submission, Can not process multiple copies"]);
                         wrong_count = len(current_name)
-                        check_name_list = [i[0] for i in list_of_valid_file_names]
-                        for valid in check_name_list:
+                        for valid in list_of_valid_file_names:
                             sequence = difflib.SequenceMatcher(isjunk=None, a=current_name, b=valid).ratio()
                             matching_letters = (sequence / 2) * (len(valid) + len(current_name))
                             wrong_letters = len(current_name) - matching_letters
@@ -157,7 +131,6 @@ def lambda_handler(event, context):
                         elif wrong_count > 3:  # more then 3 letters wrong, name not recongized
                             submission_error_list.append([current_name, "All Columns",
                                                           "Filename was not recgonized, please correct and resubmit file"])
-    
                     submit_CBC, submit_to_file, file_to_submit, submit_validation_type = get_submission_metadata(s3_client,
                                                                                                                  folder_name,
                                                                                                                  Unzipped_key,
@@ -165,7 +138,7 @@ def lambda_handler(event, context):
                                                                                                                  temp_location)
                     
                     full_name_list,error_files = filter_error_list(submission_error_list,full_name_list)
-                    in_sub_but_wrong = [i for i in full_name_list if ((i not in check_name_list) and (i not in error_files))]
+                    in_sub_but_wrong = [i for i in full_name_list if ((i not in list_of_valid_file_names) and (i not in error_files))]
                     for i in in_sub_but_wrong:
                         error_msg = "filename is not expected as part of submission."
                         submission_error_list.append([i, "All Columns", error_msg])
@@ -187,21 +160,16 @@ def lambda_handler(event, context):
                         meta_error_msg = "File is a valid Zipfile. No errors were found in submission. Files are good to proceed to Data Validation"
     
                     full_name_list,error_files = filter_error_list(submission_error_list,full_name_list)
-    
-                    submission_error_list = check_column_names(s3_client,folder_name,Unzipped_key,submission_error_list,full_name_list,info_sql_connect,pre_valid_db,
-                                                                check_name_list,list_of_valid_file_names,temp_location)
-                    
-                    full_name_list,error_files = filter_error_list(submission_error_list,full_name_list)
                 if len(submission_error_list) > 1:  # if submission errors are found, write coresponding csv file
                     lambda_path = write_error_messages("Error_Results.csv", "csv", submission_error_list,temp_location)
                     s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key + "Error_Results.csv")
                     result_location = folder_name + "/" + Results_key + "Error_Results.csv"
                     meta_error_msg = ("File is a valid Zipfile. However there were " + str(len(submission_error_list) - 1) +
                         " errors found in the submission.  A CSV file has been created contaning these errors")
-    ############################################################################################################################
+############################################################################################################################
                 lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg,temp_location)
                 s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key + "Result_Message.txt")
-    ############################################################################################################################
+############################################################################################################################
                 if error_value > 0:
                     validation_status_list.append('FILE_VALIDATION_FAILURE')
                     validation_file_location_list.append(result_location)
@@ -223,7 +191,7 @@ def lambda_handler(event, context):
     
                     submission_index = write_submission_table(conn, sql_connect,org_file_id,file_location,
                                                               batch_validation_status, submit_validation_type, result_location)
-    ################################################################################################################
+################################################################################################################
                 error_files = [i for i in error_files if i in org_file_list]            #only files that were in orgional submission
                 full_name_list = [i for i in full_name_list if i in org_file_list]      #only files that were in orgional submission
                 
@@ -246,77 +214,61 @@ def lambda_handler(event, context):
                                                                                                  submission_index,
                                                                                                  file_validation_date,
                                                                                                  Validation_Type)
+                if display_output:
+                    if error_value == 0:
+                        full_name_list = error_files + full_name_list;
+                    else:
+                        full_name_list = ["Result_Message.txt"]
+    
+                    #use these two values to control whether or not send email or slack message
+                    send_slack="yes"
+                    send_email="yes"
+                    result = {'Error_Message': meta_error_msg, 'org_file_id': str(org_file_id),
+                              'file_status': 'FILE_Processed',
+                              'validation_file_location_list': validation_file_location_list,
+                              'validation_status_list': validation_status_list, 'full_name_list': full_name_list,
+                              'previous_function': "prevalidator", 'org_file_name': zip_file_name,"send_slack": send_slack, "send_email": send_email}
+                    
+                    update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure)
             except Exception as e:
-                display_error_line(e)
-                meta_error_msg = "Error was found during File Validation"
-                full_name_list = ["Error was found"]
-                validation_status_list = ['FILE_VALIDATION_FAILURE']
-                status_flag = "Error"
-            if display_output:
-                if error_value == 0:
-                    full_name_list = error_files + full_name_list;
-                else:
-                    full_name_list = ["Result_Message.txt"]
-
-                #use these two values to control whether or not send email or slack message
-                send_slack="yes"
-                send_email="yes"
-                result = {'Error_Message': meta_error_msg, 'org_file_id': str(org_file_id),
-                          'file_status': 'FILE_Processed',
-                          'validation_file_location_list': validation_file_location_list,
-                          'validation_status_list': validation_status_list, 'full_name_list': full_name_list,
-                          'previous_function': "prevalidator", 'org_file_name': zip_file_name,"send_slack": send_slack, "send_email": send_email}
-                
-            update_jobs_table_write_to_slack(sql_connect,Validation_Type,status_flag,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure)
+                print("An Error occured during the processing of " + zip_file_name)
 ###################################################################################################################
     except Exception as e:
         display_error_line(e)
-        print("Terminating Validation Process")
-
     finally:
-        print('## Closing the connections ##')
-
+        print('## Database has been checked.  Closing the connections ##')
         if sql_connect:
             sql_connect.close()
         if conn:
             conn.commit()
             conn.close()
-
-    print('## All Files have been checked')
-    return {}
-
+#####################################################################################################################        
 def get_rows_to_validate(event,conn,sql_connect,Validation_Type):
     if Validation_Type == TEST_MODE:
         print("testMode is enabled")
         processing_table = len(event['S3'])
     else:
         table_sql_str = ("SELECT * FROM table_file_remover Where file_status = 'COPY_SUCCESSFUL'")
-        sql_connect.execute(table_sql_str)              #executes the sql query
-        
-        processing_table = sql_connect.rowcount         #how many rows are returned
+        sql_connect.execute(table_sql_str)              #executes the sql query     
         rows = sql_connect.fetchall()                   #list of all the data
+        processing_table = sql_connect.rowcount
         
     if processing_table == 1:
         print("##There is %.f file found that needs to be processed"  %processing_table)
     elif processing_table > 1:
         print("##There are %.f files found that need to be processed"  %processing_table)
-    if processing_table == 0:
-        print('## Database has been checked, NO new files were found to process.  Closing the connections ##')
     if Validation_Type == TEST_MODE:
         rows=[]
         length= len(event['S3'])
         for i in range(0,length):
             contents_list = event['S3'][i].split("/")
-
             temporary_filename=contents_list[3]
             temporary_filename_contents=temporary_filename.split(".")
             temporary_filetype=temporary_filename_contents[len(temporary_filename_contents)-1]
             rows.append((12345, temporary_filename, event['S3'][i], "testing", "testing", "COPY_SUCCESSFUL", "testing", temporary_filetype, "submit", contents_list[1], "testing"))
-
             desc=(('file_id', 3, None, 11, 11, 0, False), ('file_name', 253, None, 1020, 1020, 0, True), ('file_location', 253, None, 1020, 1020, 0, True), ('file_added_on', 12, None, 19, 19, 0, True), ('file_last_processed_on', 12, None, 19, 19, 0, True), ('file_status', 253, None, 180, 180, 0, True), ('file_origin', 253, None, 180, 180, 0, True), ('file_type', 253, None, 180, 180, 0, True), ('file_action', 253, None, 180, 180, 0, True), ('file_submitted_by', 253, None, 180, 180, 0, True), ('updated_by', 253, None, 180, 180, 0, True))
     else:
         desc = sql_connect.description                  #tuple list of column names
-
     return rows,desc,processing_table
 def check_if_zip(s3_resource,s3_client,bucket_name,key_name):
     z = []
@@ -337,47 +289,27 @@ def check_if_zip(s3_resource,s3_client,bucket_name,key_name):
     else:
         meta_error_msg = "Submitted file is NOT a valid Zip file, Unable to Process Submission"
         error_value = 2
-
     return error_value,meta_error_msg,z
-def get_column_names_from_SQL(full_sql_connect,pre_valid_db,current_file,check_name_list,list_of_valid_file_names):
-    all_headers = list()
-    values_to_ignore = ['Submission_ID','Submission_CBC','Biorepository_ID','Shipping_ID', 'Test_Agreement','Submission_time']
-    if current_file in check_name_list:
-        list_pos = check_name_list.index(current_file)
-        table_names =  list_of_valid_file_names[list_pos][1]
-        if len(table_names) > 0:
-            for iterT in table_names:
-                sql_query = "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = %s AND TABLE_SCHEMA = %s;"
-                full_sql_connect.execute(sql_query,(iterT,pre_valid_db,))
-                curr_table = full_sql_connect.fetchall()
-                curr_table =  [ele[0] for ele in curr_table if ele[0] not in values_to_ignore]
-                all_headers = all_headers + curr_table
-    return all_headers
 def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list,temp_location):
     submitting_center = []
     submit_to_file = []
     file_to_submit = []
     valid_type = "NULL"
-
     if "submission.csv" in full_name_list:
         file_list_name = []
         file_list_value = []
         curr_location = "/" + temp_location + "/" + "submission.csv"
         s3_client.download_file(folder_name, Unzipped_key + "submission.csv", curr_location)
-        
         with open(curr_location, newline='') as csvfile:
             file_reader = csv.reader(csvfile, delimiter=',', quotechar='|')
             for row in file_reader:
                 file_list_name.append(row[0])
                 file_list_value.append(row[1])
                 submit_list = [file_list_name[i[0]] for i in enumerate(file_list_value) if i[1] == 'X']
-
         valid_type = file_list_value[file_list_name.index("Submission Intent")]
         submitting_center = file_list_value[0]
-        
         submit_to_file = [i for i in submit_list if i not in full_name_list]  #in submission, not in zip
         file_to_submit = [i for i in full_name_list if i not in submit_list]  #in zip not in submission metadata
-
     return submitting_center,submit_to_file,file_to_submit,valid_type
 def update_validation_status(list_of_filesnames,validation_status,folder_name,Unzipped_key,validation_status_list,validation_file_location_list,
                              conn,sql_connect,submission_index,file_validation_date,Validation_Type):
@@ -385,7 +317,6 @@ def update_validation_status(list_of_filesnames,validation_status,folder_name,Un
         file_location = folder_name + '/' + Unzipped_key + filename
         validation_status_list.append(validation_status)          # record each validation status
         validation_file_location_list.append(file_location)
-
         if Validation_Type == DB_MODE:
             write_validation_status(conn,sql_connect,submission_index,file_location,file_validation_date,validation_status)
     return validation_status_list,validation_file_location_list
@@ -402,7 +333,7 @@ def filter_error_list(submission_error_list,full_name_list):
 def write_validation_status(conn,sql_connect,submission_file_id,file_location,file_validation_date,validation_status):
     query_str = ("INSERT INTO `table_file_validator` (submission_file_id,file_validation_file_location,file_validation_date,file_validation_status)"
                    "VALUES (%s,%s,%s,%s)")
-    sql_connect.execute(query_str,(submission_file_id,file_location,str(file_validation_date) ,validation_status,))
+    sql_connect.execute(query_str,(submission_file_id[0],file_location,str(file_validation_date) ,validation_status))
     conn.commit()
 def write_submission_table(conn,sql_connect,org_file_id,file_location,batch_validation_status,submit_validation_type,result_location):
     sql_connect.execute("select current_user();")
@@ -421,7 +352,7 @@ def write_submission_table(conn,sql_connect,org_file_id,file_location,batch_vali
     
     exe="SELECT submission_file_id FROM `table_submission_validator` WHERE orig_file_id = %s"
     sql_connect.execute(exe,(org_file_id,))
-    submission_index = sql_connect.fetchone()
+    submission_index = sql_connect.fetchall()
     return submission_index[0]
 def write_error_messages(result_name,file_type,error_output,temp_location):
     lambda_path = "/" + temp_location + "/" + result_name
@@ -435,18 +366,14 @@ def write_error_messages(result_name,file_type,error_output,temp_location):
             csv_writer = csv.writer(csvfile)
             for file_indx in error_output:
                 csv_writer.writerow(file_indx)
-
     return lambda_path
-def update_jobs_table_write_to_slack(sql_connect,Validation_Type,status_flag,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure):
+def update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure):
+
     if Validation_Type == TEST_MODE:
         file_submitted_by="'"+ row_data[9]+"'"
     else:
-        if status_flag == "Valid":
-            table_sql_str = ("UPDATE table_file_remover  Set file_status = 'FILE_Processed' "
-            "Where file_status = 'COPY_SUCCESSFUL' and file_location = %s")
-        elif status_flag == "Error":
-            table_sql_str = ("UPDATE table_file_remover  Set file_status = 'UNABLE_To_Process_File' "
-            "Where file_status = 'COPY_SUCCESSFUL' and file_location = %s")
+        table_sql_str = ("UPDATE table_file_remover  Set file_status = 'FILE_Processed'"
+        "Where file_status = 'COPY_SUCCESSFUL' and file_location = %s")
         
         sql_connect.execute(table_sql_str,(full_bucket_name,))           #mysql command that changes the file-action flag so file wont be used again
 
@@ -463,43 +390,11 @@ def move_submit_file_to_subfolder(Validation_Type,s3_client,bucket_name,org_key_
     if Validation_Type == DB_MODE:
         s3_client.copy_object(Bucket=bucket_name, Key=new_key,CopySource={'Bucket':bucket_name, 'Key':org_key_name})
         s3_client.delete_object(Bucket=bucket_name, Key=org_key_name)           # Delete original object
-def check_column_names(s3_client,folder_name,Unzipped_key,submission_error_list,full_name_list,info_sql_connect,pre_valid_db,
-                       check_name_list,list_of_valid_file_names,temp_location):
-
-    for filename in full_name_list:
-        all_headers = get_column_names_from_SQL(info_sql_connect,pre_valid_db,filename,check_name_list,list_of_valid_file_names)
-        all_headers = list(set(all_headers))
-        if len(all_headers) > 0:
-      
-            curr_location = "/" + temp_location + "/" + filename
-            s3_client.download_file(folder_name, Unzipped_key + filename, curr_location)
-            with open(curr_location, newline='',encoding='utf-8=sig') as csvfile:
-                file_reader = csv.reader(csvfile, delimiter=',', quotechar='|')
-                row1 = list(next(file_reader))
-            
-            CSV_not_in_SQL = [i for i in row1 if i not in all_headers]
-            SQL_not_in_CSV = [i for i in all_headers if i not in row1]
-            
-            for iterC in CSV_not_in_SQL:
-                error_msg = "Column name was found in CSV file, but does not exist in Database"
-                submission_error_list.append([filename, iterC, error_msg])
-            
-            for iterS in SQL_not_in_CSV:
-                error_msg = "Column name exists in Database, but is missing from CSV file"
-                submission_error_list.append([filename, iterS, error_msg])
-    return submission_error_list
 def display_error_line(ex):
     trace = []
     tb = ex.__traceback__
     while tb is not None:
-        trace.append({
-            "filename": tb.tb_frame.f_code.co_filename,
-            "name": tb.tb_frame.f_code.co_name,
-            "lineno": tb.tb_lineno
-        })
+        trace.append({"filename": tb.tb_frame.f_code.co_filename,"name": tb.tb_frame.f_code.co_name,"lineno": tb.tb_lineno})
         tb = tb.tb_next
-    print(str({
-        'type': type(ex).__name__,
-        'message': str(ex),
-        'trace': trace
-    }))
+    print(str({'type': type(ex).__name__,'message': str(ex),'trace': trace}))
+###############################################################################################
