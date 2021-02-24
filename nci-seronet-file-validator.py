@@ -240,7 +240,6 @@ def lambda_handler(event, context):
         if sql_connect:
             sql_connect.close()
         if conn:
-            conn.commit()
             conn.close()
 #####################################################################################################################        
 def get_rows_to_validate(event,conn,sql_connect,Validation_Type):
