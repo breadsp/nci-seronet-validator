@@ -153,9 +153,7 @@ def lambda_handler(event, context):
                     if len(submit_to_file) > 0:
                         for i in submit_to_file:
                             error_msg = "file name was checked in submission.csv, but was not found in the submitted zip file"
-                            submission_error_list.append([i,"All Columns", error_msg])
-                        error_msg = "Extra files are found in the submission.csv, please recheck submission"
-                        submission_error_list.append(["submission.csv","All Columns", error_msg])
+                            submission_error_list.append([i,"All Columns", error_msg])#
                     else:
                         meta_error_msg = "File is a valid Zipfile. No errors were found in submission. Files are good to proceed to Data Validation"
     
