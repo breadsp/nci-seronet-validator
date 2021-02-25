@@ -29,7 +29,7 @@ def lambda_handler(event, context):
     temp_location = "tmp"
 
     list_of_valid_file_names = ["demographic.csv","assay.csv", "assay_target.csv","biospecimen.csv", "prior_clinical_test.csv",
-         "aliquot.csv","equipment.csv","confirmatory_clinical_test.csv","reagent.csv", "consumable.csv","submission.csv"]
+         "aliquot.csv","equipment.csv","confirmatory_clinical_test.csv","reagent.csv", "consumable.csv","submission.csv","shipping_manifest.csv"]
 
     Validation_Type = DB_MODE
     if 'testMode' in event:
@@ -149,11 +149,16 @@ def lambda_handler(event, context):
                         for i in file_to_submit:
                             if i != "submission.csv":
                                 error_msg = "file name was found in the submitted zip, but was not checked in submission.csv"
-                                submission_error_list.append([i, "All Columns", error_msg])
+#                                submission_error_list.append([i, "All Columns", error_msg])
+                                submission_error_list.append(["submission.csv", i, error_msg])
+
                     if len(submit_to_file) > 0:
                         for i in submit_to_file:
                             error_msg = "file name was checked in submission.csv, but was not found in the submitted zip file"
-                            submission_error_list.append([i,"All Columns", error_msg])#
+                            submission_error_list.append(["submission.csv", i, error_msg])
+#                            submission_error_list.append([i,"All Columns", error_msg])
+#                        error_msg = "Extra files are found in the submission.csv, please recheck submission"
+#                        submission_error_list.append(["submission.csv","All Columns", error_msg])
                     else:
                         meta_error_msg = "File is a valid Zipfile. No errors were found in submission. Files are good to proceed to Data Validation"
     
@@ -168,16 +173,16 @@ def lambda_handler(event, context):
                 lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg,temp_location)
                 s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key + "Result_Message.txt")
 ############################################################################################################################
-                if error_value > 0:
+                if (error_value > 0) or (error_value == -1):
                     validation_status_list.append('FILE_VALIDATION_FAILURE')
                     validation_file_location_list.append(result_location)
                     batch_validation_status = "Batch_Validation_FAILURE"
                     submit_validation_type = "NULL"
-    
-                if len(submission_error_list) > 1:
-                    batch_validation_status = "Batch_Validation_FAILURE"
                 else:
-                    batch_validation_status = "Batch_Validation_SUCCESS"
+                    if len(submission_error_list) > 1:
+                        batch_validation_status = "Batch_Validation_FAILURE"
+                    else:
+                        batch_validation_status = "Batch_Validation_SUCCESS"
     
                 if Validation_Type == TEST_MODE:  # if in test mode do not write the to the submission file
                     print("Validation is being run in TestMode, NOT writting to submission table")
@@ -230,6 +235,7 @@ def lambda_handler(event, context):
                     update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure)
             except Exception as e:
                 print("An Error occured during the processing of " + zip_file_name)
+        conn.commit()
 ###################################################################################################################
     except Exception as e:
         display_error_line(e)
