@@ -100,7 +100,7 @@ def lambda_handler(event, context):
                 if error_value > 0:
                     lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg,temp_location)
                     s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key)
-    
+                
                 if error_value == 0:  # only examime contents of file if sucessfully unziped
                     org_file_list = zip_obj.namelist()
                     full_name_list = zip_obj.namelist()
@@ -223,13 +223,12 @@ def lambda_handler(event, context):
                 if display_output:
                     if error_value == 0:
                         full_name_list = error_files + full_name_list;
+                        if submission_missing == True:
+                            full_name_list.append("Submission Missing")
+                            validation_status_list.append('FILE_VALIDATION_FAILURE')
                     else:
                         full_name_list = ["Result_Message.txt"]
-                        
-                    if submission_missing == True:
-                        full_name_list.append("Submission Missing")
-                        validation_status_list.append('FILE_VALIDATION_FAILURE')
-    
+
                     #use these two values to control whether or not send email or slack message
                     send_slack="yes"
                     send_email="yes"
@@ -240,7 +239,8 @@ def lambda_handler(event, context):
                               'previous_function': "prevalidator", 'org_file_name': zip_file_name,"send_slack": send_slack, "send_email": send_email}
                     
                     update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure)
-            except Exception as e:
+            except Exception as err:
+                display_error_line(err)
                 print("An Error occured during the processing of " + zip_file_name)
         conn.commit()
 ###################################################################################################################
@@ -282,23 +282,23 @@ def get_rows_to_validate(event,conn,sql_connect,Validation_Type):
     return rows,desc,processing_table
 def check_if_zip(s3_resource,s3_client,bucket_name,key_name):
     z = []
-    if(str(key_name).endswith('.zip')):                                       #Zip Extension was found
-        try:
-            zip_obj = s3_resource.Object(bucket_name = bucket_name, key = key_name) #gets file from bucket
-            buffer = BytesIO(zip_obj.get()["Body"].read())                  #creates a temp storage for file
+    try:
+        zip_obj = s3_resource.Object(bucket_name = bucket_name, key = key_name) #gets file from bucket
+        buffer = BytesIO(zip_obj.get()["Body"].read())                  #creates a temp storage for file
+        if(str(key_name).endswith('.zip')):                                       #Zip Extension was found
             z = zipfile.ZipFile(buffer)                                     #unzips the contents into temp storage
             error_value = 0;
             meta_error_msg = "File was sucessfully unzipped"
-        except s3_client.exceptions.NoSuchKey:
-            meta_error_msg = "File was does not exist in location specified"
-            error_value = -1
-        except Exception as e:
-            print(e)
-            meta_error_msg = "Zip file was found, but not able to open. Unable to Process Submission"
-            error_value = 1;
-    else:
-        meta_error_msg = "Submitted file is NOT a valid Zip file, Unable to Process Submission"
-        error_value = 2
+        else:
+            meta_error_msg = "Submitted file is NOT a valid Zip file, Unable to Process Submission"
+            error_value = 2
+    except s3_client.exceptions.NoSuchKey:
+        meta_error_msg = "File was does not exist in location specified"
+        error_value = -1
+    except Exception as e:
+        print(e)
+        meta_error_msg = "Zip file was found, but not able to open. Unable to Process Submission"
+        error_value = 1;
     return error_value,meta_error_msg,z
 def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list,temp_location):
     submitting_center = []
