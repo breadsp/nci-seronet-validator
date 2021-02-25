@@ -40,7 +40,7 @@ def lambda_handler(event, context):
     conn = None
     try:
         conn = mysql.connector.connect(host = host_client, user=user_name, password=user_password, db=jobs_dbname, connect_timeout=5)
-        print("SUCCESS: Connection to RDS mysql instance succeeded for " + jobs_dbname)
+        print("SUCCESS: Connection to RDS mysql instance succeeded for " + jobs_dbname + "\n")
         sql_connect = conn.cursor(prepared=True)
         rows, desc, processing_table = get_rows_to_validate(event, conn, sql_connect, Validation_Type)
         if processing_table == 0:
@@ -144,7 +144,10 @@ def lambda_handler(event, context):
                         submission_error_list.append([i, "All Columns", error_msg])
                     if len(submit_CBC) == 0:
                         error_msg = "submission.csv was not found in submission zip file"
+                        submission_missing = True
                         submission_error_list.append(["submission.csv", "All Columns", error_msg])
+                    else:
+                        submission_missing = False
                     if len(file_to_submit) > 0:
                         for i in file_to_submit:
                             if i != "submission.csv":
@@ -168,7 +171,7 @@ def lambda_handler(event, context):
                     s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key + "Error_Results.csv")
                     result_location = folder_name + "/" + Results_key + "Error_Results.csv"
                     meta_error_msg = ("File is a valid Zipfile. However there were " + str(len(submission_error_list) - 1) +
-                        " errors found in the submission.  A CSV file has been created contaning these errors")
+                        " errors found in the submission.  A CSV file has been created containing these errors")
 ############################################################################################################################
                 lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg,temp_location)
                 s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key + "Result_Message.txt")
@@ -222,6 +225,10 @@ def lambda_handler(event, context):
                         full_name_list = error_files + full_name_list;
                     else:
                         full_name_list = ["Result_Message.txt"]
+                        
+                    if submission_missing == True:
+                        full_name_list.append("Submission Missing")
+                        validation_status_list.append('FILE_VALIDATION_FAILURE')
     
                     #use these two values to control whether or not send email or slack message
                     send_slack="yes"
