@@ -93,10 +93,11 @@ def lambda_handler(event, context):
                     if len(zip_obj.namelist()) == 0:
                         error_value = 3
                         meta_error_msg = "File is a valid Zip, however this an empty file"            
+                result_location = folder_name + "/" + Results_key + "Result_Message.txt"
                 if error_value == -1:
                     print("File was not found, unable to process.  Skipping this record and Continuing")
-                    continue
-                result_location = folder_name + "/" + Results_key + "Result_Message.txt"
+                    result_location = folder_name + "/" + Results_key + "File_was_Not_Found"
+#                    continue
                 if error_value > 0:
                     lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg,temp_location)
                     s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key)
@@ -173,8 +174,9 @@ def lambda_handler(event, context):
                     meta_error_msg = ("File is a valid Zipfile. However there were " + str(len(submission_error_list) - 1) +
                         " errors found in the submission.  A CSV file has been created containing these errors")
 ############################################################################################################################
-                lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg,temp_location)
-                s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key + "Result_Message.txt")
+                if (error_value == 0):
+                    lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg,temp_location)
+                    s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key + "Result_Message.txt")
 ############################################################################################################################
                 if (error_value > 0) or (error_value == -1):
                     validation_status_list.append('FILE_VALIDATION_FAILURE')
@@ -189,8 +191,8 @@ def lambda_handler(event, context):
     
                 if Validation_Type == TEST_MODE:  # if in test mode do not write the to the submission file
                     print("Validation is being run in TestMode, NOT writting to submission table")
-                    submission_index = 12345  # from the test case number
-                else:
+                    submission_index = 12345        # from the test case number
+                elif (error_value >= 0):            #if file is found then move (error == -1 means no file found)
                     new_key = CBC_submission_name + '/' + CBC_submission_date + '/' + sub_folder + "/" + zip_file_name
                     move_submit_file_to_subfolder(Validation_Type, s3_client, bucket_name, org_key_name, new_key)
                     file_location = bucket_name + "/" + new_key
@@ -198,10 +200,10 @@ def lambda_handler(event, context):
                     submission_index = write_submission_table(conn, sql_connect,org_file_id,file_location,
                                                               batch_validation_status, submit_validation_type, result_location)
 ################################################################################################################
-                error_files = [i for i in error_files if i in org_file_list]            #only files that were in orgional submission
-                full_name_list = [i for i in full_name_list if i in org_file_list]      #only files that were in orgional submission
-                
-                validation_status_list, validation_file_location_list = update_validation_status(error_files,
+                    error_files = [i for i in error_files if i in org_file_list]            #only files that were in orgional submission
+                    full_name_list = [i for i in full_name_list if i in org_file_list]      #only files that were in orgional submission
+                    
+                    validation_status_list, validation_file_location_list = update_validation_status(error_files,
                                                                                                  'FILE_VALIDATION_FAILURE',
                                                                                                  folder_name, Unzipped_key,
                                                                                                  validation_status_list,
@@ -211,23 +213,29 @@ def lambda_handler(event, context):
                                                                                                  file_validation_date,
                                                                                                  Validation_Type)
     
-                validation_status_list, validation_file_location_list = update_validation_status(full_name_list,
-                                                                                                 'FILE_VALIDATION_IN_PROGRESS',
-                                                                                                 folder_name, Unzipped_key,
-                                                                                                 validation_status_list,
-                                                                                                 validation_file_location_list,
-                                                                                                 conn, sql_connect,
-                                                                                                 submission_index,
-                                                                                                 file_validation_date,
-                                                                                                 Validation_Type)
+                    validation_status_list, validation_file_location_list = update_validation_status(full_name_list,
+                                                                                                     'FILE_VALIDATION_IN_PROGRESS',
+                                                                                                     folder_name, Unzipped_key,
+                                                                                                     validation_status_list,
+                                                                                                     validation_file_location_list,
+                                                                                                     conn, sql_connect,
+                                                                                                     submission_index,
+                                                                                                     file_validation_date,
+                                                                                                     Validation_Type)
                 if display_output:
                     if error_value == 0:
                         full_name_list = error_files + full_name_list;
+                        file_status = "FILE_Processed"
                         if submission_missing == True:
                             full_name_list.append("Submission Missing")
                             validation_status_list.append('FILE_VALIDATION_FAILURE')
+                            file_status = "FILE_Processed_Submissing_Missing"
+                    elif error_value == -1:
+                        full_name_list = ["File_Was_Not_Found"]
+                        file_status = "FILE_NOT_Processed_Not_Found"
                     else:
                         full_name_list = ["Result_Message.txt"]
+                        file_status = "FILE_Processed"
 
                     #use these two values to control whether or not send email or slack message
                     send_slack="yes"
@@ -238,7 +246,7 @@ def lambda_handler(event, context):
                               'validation_status_list': validation_status_list, 'full_name_list': full_name_list,
                               'previous_function': "prevalidator", 'org_file_name': zip_file_name,"send_slack": send_slack, "send_email": send_email}
                     
-                    update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure)
+                    update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure,file_status)
             except Exception as err:
                 display_error_line(err)
                 print("An Error occured during the processing of " + zip_file_name)
@@ -377,15 +385,16 @@ def write_error_messages(result_name,file_type,error_output,temp_location):
             for file_indx in error_output:
                 csv_writer.writerow(file_indx)
     return lambda_path
-def update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure):
+def update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,full_bucket_name,eastern,result,row_data,
+                                     TopicArn_Success,TopicArn_Failure,file_status):
 
     if Validation_Type == TEST_MODE:
         file_submitted_by="'"+ row_data[9]+"'"
     else:
-        table_sql_str = ("UPDATE table_file_remover  Set file_status = 'FILE_Processed'"
+        table_sql_str = ("UPDATE table_file_remover  Set file_status = %s "
         "Where file_status = 'COPY_SUCCESSFUL' and file_location = %s")
         
-        sql_connect.execute(table_sql_str,(full_bucket_name,))           #mysql command that changes the file-action flag so file wont be used again
+        sql_connect.execute(table_sql_str,(file_status,full_bucket_name,))           #mysql command that changes the file-action flag so file wont be used again
 
         #get file_submitted_by from the database for the current file_id
         exe="SELECT * FROM table_file_remover  WHERE file_id= %s"
