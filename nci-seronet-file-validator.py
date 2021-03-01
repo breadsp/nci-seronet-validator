@@ -67,7 +67,6 @@ def lambda_handler(event, context):
                 validation_file_location_list = []  # location of each file with in the submission
                 current_row = list(row_data)        # Current row function is interating on
                 full_bucket_name = current_row[file_location_index]
-    
                 zip_file_name = current_row[file_name_index]    # name of the submitted file
                 org_file_id = current_row[file_id_index]        # value of orgional ID from SQL table
                 name_parts_list = full_bucket_name.split("/")   # parse the file name path
@@ -92,7 +91,7 @@ def lambda_handler(event, context):
                 if error_value == 0:
                     if len(zip_obj.namelist()) == 0:
                         error_value = 3
-                        meta_error_msg = "File is a valid Zip, however this an empty file"            
+                        meta_error_msg = "File is a valid Zip, however this an empty file"
                 result_location = folder_name + "/" + Results_key + "Result_Message.txt"
                 if error_value == -1:
                     print("File was not found, unable to process.  Skipping this record and Continuing")
@@ -260,14 +259,14 @@ def lambda_handler(event, context):
             sql_connect.close()
         if conn:
             conn.close()
-#####################################################################################################################        
+#####################################################################################################################
 def get_rows_to_validate(event,conn,sql_connect,Validation_Type):
     if Validation_Type == TEST_MODE:
         print("testMode is enabled")
         processing_table = len(event['S3'])
     else:
         table_sql_str = ("SELECT * FROM table_file_remover Where file_status = 'COPY_SUCCESSFUL'")
-        sql_connect.execute(table_sql_str)              #executes the sql query     
+        sql_connect.execute(table_sql_str)              #executes the sql query
         rows = sql_connect.fetchall()                   #list of all the data
         processing_table = sql_connect.rowcount
         
