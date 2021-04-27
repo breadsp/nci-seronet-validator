@@ -28,8 +28,8 @@ def lambda_handler(event, context):
     file_validation_date = datetime.datetime.now(tz=eastern).strftime("%Y-%m-%d %H:%M:%S")
     temp_location = "tmp"
 
-    list_of_valid_file_names = ["demographic.csv","assay.csv", "assay_target.csv","biospecimen.csv", "prior_clinical_test.csv",
-         "aliquot.csv","equipment.csv","confirmatory_clinical_test.csv","reagent.csv", "consumable.csv","submission.csv","shipping_manifest.csv"]
+#    list_of_valid_file_names = ["demographic.csv","assay.csv", "assay_target.csv","biospecimen.csv", "prior_clinical_test.csv",
+#         "aliquot.csv","equipment.csv","confirmatory_clinical_test.csv","reagent.csv", "consumable.csv","submission.csv","shipping_manifest.csv"]
 
     Validation_Type = DB_MODE
     if 'testMode' in event:
@@ -67,6 +67,7 @@ def lambda_handler(event, context):
                 validation_file_location_list = []  # location of each file with in the submission
                 current_row = list(row_data)        # Current row function is interating on
                 full_bucket_name = current_row[file_location_index]
+    
                 zip_file_name = current_row[file_name_index]    # name of the submitted file
                 org_file_id = current_row[file_id_index]        # value of orgional ID from SQL table
                 name_parts_list = full_bucket_name.split("/")   # parse the file name path
@@ -91,7 +92,7 @@ def lambda_handler(event, context):
                 if error_value == 0:
                     if len(zip_obj.namelist()) == 0:
                         error_value = 3
-                        meta_error_msg = "File is a valid Zip, however this an empty file"
+                        meta_error_msg = "File is a valid Zip, however this an empty file"            
                 result_location = folder_name + "/" + Results_key + "Result_Message.txt"
                 if error_value == -1:
                     print("File was not found, unable to process.  Skipping this record and Continuing")
@@ -100,14 +101,25 @@ def lambda_handler(event, context):
                 if error_value > 0:
                     lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg,temp_location)
                     s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key)
-                
+                    
                 if error_value == 0:  # only examime contents of file if sucessfully unziped
-                    org_file_list = zip_obj.namelist()
-                    full_name_list = zip_obj.namelist()
+#                    org_file_list = zip_obj.namelist()
+                    full_name_list = zip_obj.namelist()     #list of files names in submission
+                    
                     for current_name in full_name_list:
                         # move unziped files from temp storage back into orgional bucket
                         s3_resource.meta.client.upload_fileobj(zip_obj.open(current_name), Bucket=folder_name,Key=Unzipped_key + current_name)
-    
+                    
+                    submission_tuple = get_submission_metadata(s3_client, folder_name, Unzipped_key,full_name_list)
+                    
+                    submit_CBC = submission_tuple[0]
+                    submit_to_file = submission_tuple[1]
+                    file_to_submit = submission_tuple[2]
+                    submit_validation_type = submission_tuple[3]
+                    list_of_valid_file_names = submission_tuple[4]
+                    org_file_list = list_of_valid_file_names   #list of all valid names in submission.csv
+
+                    for current_name in full_name_list:
                         if not current_name.endswith('.csv'):
                             submission_error_list.append(
                                 [current_name, "All Columns", "File Is not a CSV file, Unable to Process"])
@@ -131,12 +143,7 @@ def lambda_handler(event, context):
                         elif wrong_count > 3:  # more then 3 letters wrong, name not recongized
                             submission_error_list.append([current_name, "All Columns",
                                                           "Filename was not recgonized, please correct and resubmit file"])
-                    submit_CBC, submit_to_file, file_to_submit, submit_validation_type = get_submission_metadata(s3_client,
-                                                                                                                 folder_name,
-                                                                                                                 Unzipped_key,
-                                                                                                                 full_name_list,
-                                                                                                                 temp_location)
-                    
+
                     full_name_list,error_files = filter_error_list(submission_error_list,full_name_list)
                     in_sub_but_wrong = [i for i in full_name_list if ((i not in list_of_valid_file_names) and (i not in error_files))]
                     for i in in_sub_but_wrong:
@@ -173,7 +180,7 @@ def lambda_handler(event, context):
                     meta_error_msg = ("File is a valid Zipfile. However there were " + str(len(submission_error_list) - 1) +
                         " errors found in the submission.  A CSV file has been created containing these errors")
 ############################################################################################################################
-                if (error_value == 0):
+                if (error_value <= 0):
                     lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg,temp_location)
                     s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key + "Result_Message.txt")
 ############################################################################################################################
@@ -199,11 +206,21 @@ def lambda_handler(event, context):
                     submission_index = write_submission_table(conn, sql_connect,org_file_id,file_location,
                                                               batch_validation_status, submit_validation_type, result_location)
 ################################################################################################################
-                    error_files = [i for i in error_files if i in org_file_list]            #only files that were in orgional submission
-                    full_name_list = [i for i in full_name_list if i in org_file_list]      #only files that were in orgional submission
-                    
-                    validation_status_list, validation_file_location_list = update_validation_status(error_files,
-                                                                                                 'FILE_VALIDATION_FAILURE',
+                error_files = [i for i in error_files if i in org_file_list]            #only files that were in orgional submission
+                full_name_list = [i for i in full_name_list if i in org_file_list]      #only files that were in orgional submission
+                
+                validation_status_list, validation_file_location_list = update_validation_status(error_files,
+                                                                                             'FILE_VALIDATION_FAILURE',
+                                                                                             folder_name, Unzipped_key,
+                                                                                             validation_status_list,
+                                                                                             validation_file_location_list,
+                                                                                             conn, sql_connect,
+                                                                                             submission_index,
+                                                                                             file_validation_date,
+                                                                                             Validation_Type)
+
+                validation_status_list, validation_file_location_list = update_validation_status(full_name_list,
+                                                                                                 'FILE_VALIDATION_IN_PROGRESS',
                                                                                                  folder_name, Unzipped_key,
                                                                                                  validation_status_list,
                                                                                                  validation_file_location_list,
@@ -211,16 +228,6 @@ def lambda_handler(event, context):
                                                                                                  submission_index,
                                                                                                  file_validation_date,
                                                                                                  Validation_Type)
-    
-                    validation_status_list, validation_file_location_list = update_validation_status(full_name_list,
-                                                                                                     'FILE_VALIDATION_IN_PROGRESS',
-                                                                                                     folder_name, Unzipped_key,
-                                                                                                     validation_status_list,
-                                                                                                     validation_file_location_list,
-                                                                                                     conn, sql_connect,
-                                                                                                     submission_index,
-                                                                                                     file_validation_date,
-                                                                                                     Validation_Type)
                 if display_output:
                     if error_value == 0:
                         full_name_list = error_files + full_name_list;
@@ -259,14 +266,14 @@ def lambda_handler(event, context):
             sql_connect.close()
         if conn:
             conn.close()
-#####################################################################################################################
+#####################################################################################################################        
 def get_rows_to_validate(event,conn,sql_connect,Validation_Type):
     if Validation_Type == TEST_MODE:
         print("testMode is enabled")
         processing_table = len(event['S3'])
     else:
         table_sql_str = ("SELECT * FROM table_file_remover Where file_status = 'COPY_SUCCESSFUL'")
-        sql_connect.execute(table_sql_str)              #executes the sql query
+        sql_connect.execute(table_sql_str)              #executes the sql query     
         rows = sql_connect.fetchall()                   #list of all the data
         processing_table = sql_connect.rowcount
         
@@ -307,27 +314,37 @@ def check_if_zip(s3_resource,s3_client,bucket_name,key_name):
         meta_error_msg = "Zip file was found, but not able to open. Unable to Process Submission"
         error_value = 1;
     return error_value,meta_error_msg,z
-def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list,temp_location):
+def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list):
     submitting_center = []
     submit_to_file = []
     file_to_submit = []
+    list_of_valid_names = []
     valid_type = "NULL"
+    sheet_names = []
+    sheet_values = []
     if "submission.csv" in full_name_list:
-        file_list_name = []
-        file_list_value = []
-        curr_location = "/" + temp_location + "/" + "submission.csv"
-        s3_client.download_file(folder_name, Unzipped_key + "submission.csv", curr_location)
-        with open(curr_location, newline='') as csvfile:
-            file_reader = csv.reader(csvfile, delimiter=',', quotechar='|')
-            for row in file_reader:
-                file_list_name.append(row[0])
-                file_list_value.append(row[1])
-                submit_list = [file_list_name[i[0]] for i in enumerate(file_list_value) if i[1] == 'X']
-        valid_type = file_list_value[file_list_name.index("Submission Intent")]
-        submitting_center = file_list_value[0]
+        print(Unzipped_key)
+        csv_obj = s3_client.get_object(Bucket=folder_name, Key=Unzipped_key + "submission.csv" )
+        body = csv_obj['Body']
+        csv_string = body.read().decode('utf-8')
+        lines = csv_string.splitlines()
+        for iterZ in lines:
+            split_lines = iterZ.split(',')
+            sheet_names.append(split_lines[0])
+            sheet_values.append(split_lines[1])
+            
+        
+        submitting_center = sheet_values[1]
+        valid_type = sheet_values[sheet_names.index("Submission Intent")]
+        sheet_names = sheet_names[7:]
+        sheet_values = sheet_values[7:]
+        
+        submit_list = [sheet_names[i[0]] for i in enumerate(sheet_values) if i[1] == 'X']   
+        list_of_valid_names = sheet_names + ["submission.csv"]
+        
         submit_to_file = [i for i in submit_list if i not in full_name_list]  #in submission, not in zip
         file_to_submit = [i for i in full_name_list if i not in submit_list]  #in zip not in submission metadata
-    return submitting_center,submit_to_file,file_to_submit,valid_type
+    return (submitting_center,submit_to_file,file_to_submit,valid_type,list_of_valid_names)
 def update_validation_status(list_of_filesnames,validation_status,folder_name,Unzipped_key,validation_status_list,validation_file_location_list,
                              conn,sql_connect,submission_index,file_validation_date,Validation_Type):
     for filename in list_of_filesnames:
