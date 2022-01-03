@@ -115,7 +115,7 @@ def lambda_handler(event, context):
                     submit_CBC = submission_tuple[0]
                     submit_to_file = submission_tuple[1]
                     file_to_submit = submission_tuple[2]
-                    submit_validation_type = submission_tuple[3]
+                    submit_intent = submission_tuple[3] #change submit_validation_type to submit_intent
                     list_of_valid_file_names = submission_tuple[4]
                     org_file_list = list_of_valid_file_names   #list of all valid names in submission.csv
 
@@ -188,7 +188,7 @@ def lambda_handler(event, context):
                     validation_status_list.append('FILE_VALIDATION_FAILURE')
                     validation_file_location_list.append(result_location)
                     batch_validation_status = "Batch_Validation_FAILURE"
-                    submit_validation_type = "NULL"
+                    submit_intent = "NULL"
                 else:
                     if len(submission_error_list) > 1:
                         batch_validation_status = "Batch_Validation_FAILURE"
@@ -204,7 +204,7 @@ def lambda_handler(event, context):
                     file_location = bucket_name + "/" + new_key
     
                     submission_index = write_submission_table(conn, sql_connect,org_file_id,file_location,
-                                                              batch_validation_status, submit_validation_type, result_location)
+                                                              batch_validation_status, submit_intent, result_location)
 ################################################################################################################
                 error_files = [i for i in error_files if i in org_file_list]            #only files that were in orgional submission
                 full_name_list = [i for i in full_name_list if i in org_file_list]      #only files that were in orgional submission
@@ -369,7 +369,7 @@ def write_validation_status(conn,sql_connect,submission_file_id,file_location,fi
                    "VALUES (%s,%s,%s,%s)")
     sql_connect.execute(query_str,(submission_file_id[0],file_location,str(file_validation_date) ,validation_status))
     conn.commit()
-def write_submission_table(conn,sql_connect,org_file_id,file_location,batch_validation_status,submit_validation_type,result_location):
+def write_submission_table(conn,sql_connect,org_file_id,file_location,batch_validation_status,submit_intent,result_location):
     sql_connect.execute("select current_user();")
     current_user = sql_connect.fetchall()
     
@@ -378,10 +378,10 @@ def write_submission_table(conn,sql_connect,org_file_id,file_location,batch_vali
     file_validation_date = datetime.datetime.now(tz=eastern).strftime("%Y-%m-%d %H:%M:%S")
 
     query_auto = ("INSERT INTO `table_submission_validator`(orig_file_id,submission_validation_file_location,submission_validation_result_location,"
-    "submission_validation_notification_arn,submission_validation_date,batch_validation_status,submission_validation_type,"
+    "submission_validation_notification_arn,submission_validation_date,batch_validation_status,submission_intent,"
     "submission_validation_updated_by) VALUE (%s,%s,%s,%s,%s,%s,%s,%s)")
        
-    sql_connect.execute(query_auto,(org_file_id,file_location,result_location,notification_arn,file_validation_date,batch_validation_status,submit_validation_type,current_user[0][0],))      #mysql command that will update the file-processor table
+    sql_connect.execute(query_auto,(org_file_id,file_location,result_location,notification_arn,file_validation_date,batch_validation_status,submit_intent,current_user[0][0],))      #mysql command that will update the file-processor table
     conn.commit()
     
     exe="SELECT submission_file_id FROM `table_submission_validator` WHERE orig_file_id = %s"
@@ -432,4 +432,3 @@ def display_error_line(ex):
         trace.append({"filename": tb.tb_frame.f_code.co_filename,"name": tb.tb_frame.f_code.co_name,"lineno": tb.tb_lineno})
         tb = tb.tb_next
     print(str({'type': type(ex).__name__,'message': str(ex),'trace': trace}))
-###############################################################################################
