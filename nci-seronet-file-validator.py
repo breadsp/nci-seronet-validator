@@ -111,7 +111,12 @@ def lambda_handler(event, context):
                         s3_resource.meta.client.upload_fileobj(zip_obj.open(current_name), Bucket=folder_name,Key=Unzipped_key + current_name)
                     
                     submission_tuple = get_submission_metadata(s3_client, folder_name, Unzipped_key,full_name_list)
-                    
+                    submission_intent_missing = False
+                    if submission_tuple[3] == "intent missing":
+                        submission_intent_missing = True
+                        error_msg = "The submission intent is missing from the submission.csv"
+                        submission_error_list.append(["submission.csv", "All Columns", error_msg])
+                        
                     submit_CBC = submission_tuple[0]
                     submit_to_file = submission_tuple[1]
                     file_to_submit = submission_tuple[2]
@@ -178,7 +183,10 @@ def lambda_handler(event, context):
                     s3_resource.meta.client.upload_file(lambda_path, folder_name, Results_key + "Error_Results.csv")
                     result_location = folder_name + "/" + Results_key + "Error_Results.csv"
                     meta_error_msg = ("File is a valid Zipfile. However there were " + str(len(submission_error_list) - 1) +
-                        " errors found in the submission.  A CSV file has been created containing these errors")
+                        " errors found in the submission.  A CSV file has been created containing these errors.")
+                    if submission_tuple[3] == "intent missing":
+                        meta_error_msg = ("File is a valid Zipfile. However the submission intent is missing from the submission.csv." + 
+                        " A CSV file has been created containing these errors")
 ############################################################################################################################
                 if (error_value <= 0):
                     lambda_path = write_error_messages("Result_Message.txt", "text", meta_error_msg,temp_location)
@@ -235,7 +243,7 @@ def lambda_handler(event, context):
                         if submission_missing == True:
                             full_name_list.append("Submission Missing")
                             validation_status_list.append('FILE_VALIDATION_FAILURE')
-                            file_status = "FILE_Processed_Submissing_Missing"
+                            file_status = "FILE_Processed_Submission_Missing"
                     elif error_value == -1:
                         full_name_list = ["File_Was_Not_Found"]
                         file_status = "FILE_NOT_Processed_Not_Found"
@@ -251,7 +259,8 @@ def lambda_handler(event, context):
                               'validation_file_location_list': validation_file_location_list,
                               'validation_status_list': validation_status_list, 'full_name_list': full_name_list,
                               'previous_function': "prevalidator", 'org_file_name': zip_file_name,"send_slack": send_slack, "send_email": send_email}
-                    
+                    if submission_intent_missing == True:
+                            file_status = "FILE_Processed_Submission_Intent_Missing"
                     update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,full_bucket_name,eastern,result,row_data,TopicArn_Success,TopicArn_Failure,file_status)
             except Exception as err:
                 display_error_line(err)
@@ -323,7 +332,6 @@ def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list):
     sheet_names = []
     sheet_values = []
     if "submission.csv" in full_name_list:
-        print(Unzipped_key)
         csv_obj = s3_client.get_object(Bucket=folder_name, Key=Unzipped_key + "submission.csv" )
         body = csv_obj['Body']
         csv_string = body.read().decode('utf-8')
@@ -335,7 +343,10 @@ def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list):
             
         
         submitting_center = sheet_values[1]
-        valid_type = sheet_values[sheet_names.index("Submission Intent")]
+        try:
+            valid_type = sheet_values[sheet_names.index("Submission Intent")]
+        except Exception as e:
+            valid_type = "intent missing"
         sheet_names = sheet_names[7:]
         sheet_values = sheet_values[7:]
         
@@ -403,7 +414,6 @@ def write_error_messages(result_name,file_type,error_output,temp_location):
     return lambda_path
 def update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,full_bucket_name,eastern,result,row_data,
                                      TopicArn_Success,TopicArn_Failure,file_status):
-
     if Validation_Type == TEST_MODE:
         file_submitted_by="'"+ row_data[9]+"'"
     else:
