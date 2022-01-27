@@ -185,7 +185,7 @@ def lambda_handler(event, context):
                     meta_error_msg = ("File is a valid Zipfile. However there were " + str(len(submission_error_list) - 1) +
                         " errors found in the submission.  A CSV file has been created containing these errors.")
                     if submission_tuple[3] == "intent missing":
-                        meta_error_msg = ("File is a valid Zipfile. However the submission intent is missing from the submission.csv." + 
+                        meta_error_msg = ("File is a valid Zipfile. However the submission intent is missing from the submission.csv." +
                         " A CSV file has been created containing these errors")
 ############################################################################################################################
                 if (error_value <= 0):
@@ -347,6 +347,7 @@ def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list):
             valid_type = sheet_values[sheet_names.index("Submission Intent")]
         except Exception as e:
             valid_type = "intent missing"
+            print(e)
         sheet_names = sheet_names[7:]
         sheet_values = sheet_values[7:]
         
