@@ -11,6 +11,7 @@ import csv
 
 DB_MODE = "DB_Mode"
 TEST_MODE = "Test_Mode"
+INTENT_MISSING = "intent missing"
 
 def lambda_handler(event, context):
 ##user defined variables
@@ -112,7 +113,6 @@ def lambda_handler(event, context):
                     
                     submission_tuple = get_submission_metadata(s3_client, folder_name, Unzipped_key,full_name_list)
                     submission_intent_missing = False
-                    INTENT_MISSING = "intent missing"
                     if submission_tuple[3] == INTENT_MISSING:
                         submission_intent_missing = True
                         error_msg = "The submission intent is missing from the submission.csv"
@@ -347,7 +347,7 @@ def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list):
         try:
             valid_type = sheet_values[sheet_names.index("Submission Intent")]
         except Exception as e:
-            valid_type = "intent missing"
+            valid_type = INTENT_MISSING
             print(e)
         sheet_names = sheet_names[7:]
         sheet_values = sheet_values[7:]
