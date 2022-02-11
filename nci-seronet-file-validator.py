@@ -349,6 +349,8 @@ def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list):
         except Exception as e:
             valid_type = INTENT_MISSING
             print(e)
+        if valid_type == '':
+            valid_type = INTENT_MISSING
         sheet_names = sheet_names[7:]
         sheet_values = sheet_values[7:]
         
