@@ -110,8 +110,10 @@ def lambda_handler(event, context):
                     for current_name in full_name_list:
                         # move unziped files from temp storage back into orgional bucket
                         s3_resource.meta.client.upload_fileobj(zip_obj.open(current_name), Bucket=folder_name,Key=Unzipped_key + current_name)
-                    
-                    submission_tuple = get_submission_metadata(s3_client, folder_name, Unzipped_key,full_name_list)
+                    valid_submission_intent_list = ssm.get_parameter(Name = "valid_submission_intent_list", WithDecryption=True).get("Parameter").get("Value")
+                    valid_submission_intent_list = valid_submission_intent_list.split(",")
+                    valid_submission_intent_list = [s.strip() for s in valid_submission_intent_list]
+                    submission_tuple = get_submission_metadata(s3_client, folder_name, Unzipped_key,full_name_list,valid_submission_intent_list)
                     submission_intent_missing = False
                     if submission_tuple[3] == INTENT_MISSING:
                         submission_intent_missing = True
@@ -324,7 +326,7 @@ def check_if_zip(s3_resource,s3_client,bucket_name,key_name):
         meta_error_msg = "Zip file was found, but not able to open. Unable to Process Submission"
         error_value = 1;
     return error_value,meta_error_msg,z
-def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list):
+def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list,valid_submission_intent_list):
     submitting_center = []
     submit_to_file = []
     file_to_submit = []
@@ -349,7 +351,7 @@ def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list):
         except Exception as e:
             valid_type = INTENT_MISSING
             print(e)
-        if valid_type == '':
+        if valid_type not in valid_submission_intent_list:
             valid_type = INTENT_MISSING
         sheet_names = sheet_names[7:]
         sheet_values = sheet_values[7:]
