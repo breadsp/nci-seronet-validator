@@ -1,23 +1,24 @@
-from import_loader_v2 import *
+from import_loader_v2 import time, pd, sd, os, re, colored, pd_s3, pathlib, cprint, shutil, datetime, parse
+from import_loader_v2 import set_up_function, get_template_data, get_box_data
 import hashlib
 
 from get_data_to_check_v2 import get_summary_file
 import db_loader_ref_pannels
-import db_loader_vac_resp
+# import db_loader_vac_resp
 import db_loader_v4
 from bio_repo_map import bio_repo_map
 
 from connect_to_sql_db import connect_to_sql_db
 from File_Submission_Object_v2 import Submission_Object
-from Validation_Rules_v2 import *
+import Validation_Rules_v2 as vald_rules
 #############################################################################################
 #  import templates abd CBC codes directly from box
 #  connect to S3 client and return handles for future use
 start_time = time.time()
 print("## Running Set Up Functions")
 file_sep, s3_client, s3_resource, Support_Files, validation_date, box_dir = set_up_function()
-study_type = "Refrence_Pannel"
-#  study_type = "Vaccine_Response"
+#  study_type = "Refrence_Pannel"
+study_type = "Vaccine_Response"
 
 template_df, dbname = get_template_data(box_dir, file_sep, study_type)
 print("Initialization took %.2f seconds" % (time.time() - start_time))
@@ -29,7 +30,7 @@ def Data_Validation_Main(study_type):
         return
 
     root_dir = "C:\\Seronet_Data_Validation"  # Directory where Files will be downloaded
-    ignore_validation_list = ["submission.csv", "assay.csv", "assay_target.csv"]
+    ignore_validation_list = ["submission.csv", "assay.csv", "assay_target.csv", "baseline_visit_date.csv"]
     check_BSI_tables = False
     make_rec_report = False
     upload_ref_data = False
@@ -40,9 +41,9 @@ def Data_Validation_Main(study_type):
     print("Connection to SQL database took %.2f seconds" % (time.time() - start_time))
 
     if upload_ref_data is True and study_type == "Refrence_Pannel":
-        db_loader_ref_pannels.write_panel_to_db(sql_tuple, s3_client, bucket)
+        #  db_loader_ref_pannels.write_panel_to_db(sql_tuple, s3_client, bucket)
         db_loader_ref_pannels.write_requests_to_db(sql_tuple, s3_client, bucket)
-        db_loader_ref_pannels.make_manifests(sql_tuple, s3_client, bucket)
+        db_loader_ref_pannels.make_manifests(sql_tuple, s3_client, s3_resource, bucket)
 
     if make_rec_report is True:
         generate_rec_report(sql_tuple, s3_client, bucket)
@@ -51,20 +52,13 @@ def Data_Validation_Main(study_type):
         check_bio_repo_tables(s3_client, s3_resource, study_type)  # Create BSI report using file in S3 bucket
 ###############################################################################################
     if study_type == "Refrence_Pannel":
-        db_loader_v4.Db_loader_main("Reference Pannel Submissions", sql_tuple, validation_date, Update_Assay_Data=False,
-                                    Update_BSI_Tables=True)
-        #db_loader_ref_pannels.Db_loader_main(sql_tuple, validation_date,
-        #                                     update_BSI_tables=True, Update_Table=True,
-        #                                     update_assay_data=False, update_child_aliquot_data=False,
-        #                                     add_serology_data=False, update_CDC_tables=False)
-        sql_table_dict = db_loader_ref_pannels.get_sql_dict()
-
+        sql_table_dict = db_loader_v4.Db_loader_main("Reference Pannel Submissions", sql_tuple, validation_date,
+                                                     Update_Assay_Data=False, Update_BSI_Tables=check_BSI_tables,
+                                                     add_serology_data=False, Add_Blinded_Results=True,
+                                                     update_CDC_tables=False)
     elif study_type == "Vaccine_Response":
-        db_loader_v4.Db_loader_main("Vaccine Response Submissions", sql_tuple, validation_date, Update_Assay_Data=True,
-                                    Update_Study_Design=True, Update_BSI_Tables=True)
-
-#        db_loader_vac_resp.Db_loader_main("Vaccine Response Submissions", sql_tuple, validation_date)
-        sql_table_dict = db_loader_vac_resp.get_sql_dict()
+        sql_table_dict = db_loader_v4.Db_loader_main("Vaccine Response Submissions", sql_tuple, validation_date,
+                                                     Update_Assay_Data=False, Update_Study_Design=False, Update_BSI_Tables=False)
 #############################################################################################
 # compares S3 destination to S3-Passed and S3-Failed to get list of submissions to work
     try:
@@ -73,14 +67,14 @@ def Data_Validation_Main(study_type):
 #############################################################################################
 # pulls the all assay data directly from box
         start_time = time.time()
-        assay_data, assay_target, all_qc_data, converion_file = get_box_data.get_assay_data()
+        assay_data, assay_target, all_qc_data, converion_file = get_box_data.get_assay_data("CBC_Data")
         study_design = get_box_data.get_study_design()
 
         print("\nLoading Assay Data took %.2f seconds" % (time.time()-start_time))
 ############################################################################################
         if study_type == "Refrence_Pannel":
             check_serology_submissions(s3_client, colored, bucket, assay_data, assay_target)
-            check_serology_shipping(pd_s3, pd, colored, s3_client, bucket, sql_tuple)
+            vald_rules.check_serology_shipping(pd_s3, pd, colored, s3_client, bucket, sql_tuple)
 ############################################################################################
 # Creates Sub folders to place submissions in based on validation results
         start_time = time.time()
@@ -133,7 +127,6 @@ def Data_Validation_Main(study_type):
                 try:
                     current_sub_object.initalize_parms(os, shutil, curr_file, template_df,
                                                        sql_tuple[0], sql_table_dict)
-                    curr_dict = populate_dict(validation_date, cbc_name, curr_date[1], current_sub_object)
                 except PermissionError:
                     print("One or more files needed is open, not able to proceed")
                     continue
@@ -146,20 +139,16 @@ def Data_Validation_Main(study_type):
                     if study_name != study_type:
                         print(f"##  Submission not in {study_type}, correct and rerun ##")
                         continue
-                    if current_sub_object.Intent == "Update" and study_type == "Vaccine_Response":
-                        print("update code not ready")
-                        continue
                     col_err_count = current_sub_object.check_col_errors(file_sep, curr_file)
                     if col_err_count > 0:
                         print(colored("Submission has Column Errors, Data Validation NOT Preformed", "red"))
-                        #  update excel file
-#                        move_target_folder(curr_date, file_sep, file_path, "03_Column_Errors")
                         continue
                     current_sub_object = zero_pad_ids(current_sub_object)
                     current_sub_object.get_all_unique_ids(re)
                     current_sub_object.populate_missing_keys(sql_tuple)
                     data_table = current_sub_object.Data_Object_Table
                     empty_list = []
+
                     for file_name in data_table:
                         current_sub_object.set_key_cols(file_name, study_type)
                         if len(data_table[file_name]["Data_Table"]) == 0 and "visit_info_sql.csv" not in file_name:
@@ -179,6 +168,10 @@ def Data_Validation_Main(study_type):
                 current_sub_object.update_object(assay_data, "assay.csv")
                 current_sub_object.update_object(assay_target, "assay_target.csv")
                 current_sub_object.update_object(study_design, "study_design.csv")
+
+                data_table = current_sub_object.Data_Object_Table
+                if "baseline_visit_date.csv" in data_table:
+                    current_sub_object.Data_Object_Table = {"baseline_visit_date.csv": data_table["baseline_visit_date.csv"]}
 
                 valid_cbc_ids = str(current_sub_object.CBC_ID)
                 for file_name in current_sub_object.Data_Object_Table:
@@ -200,8 +193,8 @@ def Data_Validation_Main(study_type):
                             data_table, drop_list = current_sub_object.merge_tables(file_name)
                             current_sub_object.Data_Object_Table[file_name]['Data_Table'] = data_table.drop(drop_list, axis=1)
                             current_sub_object.Data_Object_Table[file_name]['Data_Table'].drop_duplicates(inplace=True)
-                            current_sub_object = Validation_Rules(re, datetime, current_sub_object, data_table,
-                                                                  file_name, valid_cbc_ids, drop_list, study_type)
+                            current_sub_object = vald_rules.Validation_Rules(re, datetime, current_sub_object, data_table,
+                                                                             file_name, valid_cbc_ids, drop_list, study_type)
                             current_sub_object.check_dup_visit(pd, data_table, drop_list, file_name)
                             toc = time.time()
                             print(f"{file_name} took %.2f seconds" % (toc-tic))
@@ -209,14 +202,18 @@ def Data_Validation_Main(study_type):
                             print(file_name + " was not included in the submission")
                     except Exception as e:
                         display_error_line(e)
-                check_ID_Cross_Sheet(current_sub_object, os, re, file_sep, study_name)
-                if study_type == "Vaccine_Response":
+                vald_rules.check_ID_Cross_Sheet(current_sub_object, os, re, file_sep, study_name)
+                if file_name in ["baseline_visit_date.csv"]:
+                    vald_rules.check_baseline_date(current_sub_object, pd, sql_tuple, parse)
+                elif study_type == "Vaccine_Response":
                     current_sub_object.compare_visits("baseline")
                     current_sub_object.compare_visits("followup")
-                    check_comorbid_hist(pd, sql_tuple, current_sub_object)
-                if study_type == "Refrence_Pannel":
-                    compare_SARS_tests(current_sub_object, pd, sql_tuple[1])
-                check_shipping(current_sub_object)
+                    vald_rules.check_comorbid_hist(pd, sql_tuple, current_sub_object)
+                    vald_rules.check_vacc_hist(pd, sql_tuple, current_sub_object)
+                    current_sub_object.check_comorbid_dict(pd, sql_tuple[1])
+                elif study_type == "Refrence_Pannel":
+                    vald_rules.compare_SARS_tests(current_sub_object, pd, sql_tuple[1])
+                vald_rules.check_shipping(current_sub_object)
                 try:
                     dup_visits = current_sub_object.dup_visits
                     if len(dup_visits) > 0:
@@ -238,6 +235,7 @@ def Data_Validation_Main(study_type):
                     else:
                         error_str = ("Data Validation found " + str(len(current_sub_object.Error_list)) +
                                      " errors in the submitted files")
+                        # current_sub_object.split_into_error_files(os, file_sep)
 #                        move_target_folder(curr_date, file_sep, file_path, "04_Failed_Data_Validation")
                         print(colored(error_str, "red"))
                 except Exception as err:
@@ -290,7 +288,7 @@ def clear_dir(file_path):
 def check_if_done(file_list):
     for iterD in file_list:
         if os.path.isfile(iterD):
-            file_path, file_name = os.path.split(path)
+            file_path, file_name = os.path.split(iterD)
             os.remove(file_path)
             print(colored("\n##    File Validation has NOT been run for " + file_name + "    ##", 'yellow'))
             file_list.remove(iterD)
@@ -335,16 +333,10 @@ def dir_check(old_cbc, new_cbc, curr_folder):
         if new_cbc not in curr_folder:
             try:
                 os.rename(old_cbc, new_cbc)
-            except Exception as e:
+            except Exception:
                 print("unable to rename folder")
         else:
             shutil.rmtree(os.getcwd() + file_sep + old_cbc)
-
-
-def populate_dict(curr_date, cbc_name, iterD, current_sub_object):
-    curr_dict = {"Submission_Status": "Downloaded", "Date_Of_Last_Status": curr_date, "CBC_Num": cbc_name,
-                 "Date_Timestamp": iterD, "Submission_Name": current_sub_object.File_Name}
-    return curr_dict
 
 
 def get_subfolder(root_dir, folder_name):
@@ -560,7 +552,7 @@ def generate_rec_report(sql_tuple, s3_client, bucket):
     z.reset_index(inplace=True)
     z.columns = ["Participant_ID", "Vial_Count"]
 
-    single_ids = parent_data.merge(z.query('Vial_Count == 1'))
+    # single_ids = parent_data.merge(z.query('Vial_Count == 1'))
     parent_data = parent_data.merge(z.query('Vial_Count > 1'))
 #    parent_data = parent_data.query("`Vial Status` in ['In']")
 
@@ -612,7 +604,7 @@ def check_serology_submissions(s3_client, colored, bucket, assay_data, assay_tar
 
             data_table, drop_list = current_sub_object.validate_serology(file_name, serology_data,
                                                                          assay_data, assay_target, serology_code)
-            current_sub_object = Validation_Rules(re, datetime, current_sub_object, data_table,
+            current_sub_object = vald_rules.Validation_Rules(re, datetime, current_sub_object, data_table,
                                                   file_name, serology_code, drop_list, study_type)
             error_list = current_sub_object.Error_list
             error_count = len(error_list)

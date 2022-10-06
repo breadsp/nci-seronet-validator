@@ -1,7 +1,7 @@
 from import_loader import *
 
 
-def get_assay_data():
+def get_assay_data(data_type):
     file_sep = os.path.sep
     box_dir = "C:" + file_sep + "Users" + file_sep + os.getlogin() + file_sep + "Box"
     assay_dir = box_dir + file_sep + "CBC_Folders"
@@ -18,33 +18,36 @@ def get_assay_data():
                 modified = os.path.getmtime(file_path)
                 path_dir.loc[len(path_dir.index)] = [r, file, created, modified]
 
-    all_assay_data = pd.DataFrame()
-    all_target_data = pd.DataFrame()
-    all_qc_data = pd.DataFrame()
-    converion_file = pd.DataFrame()
+    if data_type == "CBC_Data":
+        all_assay_data = pd.DataFrame()
+        all_target_data = pd.DataFrame()
+        all_qc_data = pd.DataFrame()
+        converion_file = pd.DataFrame()
 
-    uni_path = list(set(path_dir["Dir_Path"]))
-    for curr_path in uni_path:
-        curr_folder = path_dir.query("Dir_Path == @curr_path")
-        assay_file = curr_folder[curr_folder["File_Name"].apply(lambda x: 'assay' in x and "assay_qc" not in x
-                                                                and "assay_target" not in x)]
-        all_assay_data = populate_df(all_assay_data, assay_file)
+        uni_path = list(set(path_dir["Dir_Path"]))
+        for curr_path in uni_path:
+            curr_folder = path_dir.query("Dir_Path == @curr_path")
+            assay_file = curr_folder[curr_folder["File_Name"].apply(lambda x: 'assay' in x and "assay_qc" not in x
+                                                                    and "assay_target" not in x)]
+            all_assay_data = populate_df(all_assay_data, assay_file)
 
-        assay_file = curr_folder[curr_folder["File_Name"].apply(lambda x: "assay_qc" in x)]
-        all_qc_data = populate_df(all_qc_data, assay_file)
+            assay_file = curr_folder[curr_folder["File_Name"].apply(lambda x: "assay_qc" in x)]
+            all_qc_data = populate_df(all_qc_data, assay_file)
 
-        assay_file = curr_folder[curr_folder["File_Name"].apply(lambda x: "assay_target_antigen" in x or
-                                                                "assay_target" in x)]
-        all_target_data = populate_df(all_target_data, assay_file)
+            assay_file = curr_folder[curr_folder["File_Name"].apply(lambda x: "assay_target_antigen" in x or
+                                                                    "assay_target" in x)]
+            all_target_data = populate_df(all_target_data, assay_file)
 
-        assay_file = curr_folder[curr_folder["File_Name"].apply(lambda x: "Assay_Target_Organism_Conversion.xlsx" in x)]
-        converion_file = populate_df(converion_file, assay_file)
+            assay_file = curr_folder[curr_folder["File_Name"].apply(lambda x: "Assay_Target_Organism_Conversion.xlsx" in x)]
+            converion_file = populate_df(converion_file, assay_file)
 
-    all_assay_data = clean_up_tables(all_assay_data, '[0-9]{2}[_]{1}[0-9]{3}$')
-    all_target_data = clean_up_tables(all_target_data, '[0-9]{2}[_]{1}[0-9]{3}$')
-    all_qc_data = clean_up_tables(all_qc_data, '[0-9]{2}[_]{1}[0-9]{3}$')
+        all_assay_data = clean_up_tables(all_assay_data, '[0-9]{2}[_]{1}[0-9]{3}$')
+        all_target_data = clean_up_tables(all_target_data, '[0-9]{2}[_]{1}[0-9]{3}$')
+        all_qc_data = clean_up_tables(all_qc_data, '[0-9]{2}[_]{1}[0-9]{3}$')
 
-    return all_assay_data, all_target_data, all_qc_data, converion_file
+        return all_assay_data, all_target_data, all_qc_data, converion_file
+    elif data_type == "Validation":
+        print("x")
 
 
 def populate_df(curr_assay, assay_file):
@@ -73,22 +76,19 @@ def get_study_design():
     file_sep = os.path.sep
     box_dir = "C:" + file_sep + "Users" + file_sep + os.getlogin() + file_sep + "Box"
     design_dir = box_dir + file_sep + "CBC_Folders"
-    study_design = []
+    study_paths = []
 
-    path_dir = pd.DataFrame(columns=["Dir_Path", "File_Name", "Date_Created", "Date_Modified"])
+    study_data = pd.DataFrame(columns=["Cohort_Name", "Index_Date", "Notes", "CBC_Name"])
+
     for r, d, f in os.walk(design_dir):  # r=root, d=directories, f = files
         for file in f:
             if (file.endswith(".csv")) and ("Vaccine_Respone_Study_Design" in r):
                 file_path = os.path.join(r, file)
-                z = file_path.replace("\\Vaccine_Respone_Study_Design\\" + file, "")
-                path, cbc = os.path.split(z)
+                study_paths.append(file_path)
 
-                curr_data = pd.read_csv(file_path, na_filter=False)
-                curr_data["CBC_Name"] = cbc
+    for curr_path in study_paths:
+        curr_data = pd.read_csv(curr_path)
+        curr_data["CBC_Name"]= r.split("\\")[5]
+        study_data = pd.concat([study_data, curr_data])
 
-                if len(study_design) == 0:
-                    study_design = curr_data
-                else:
-                    study_design = pd.concat([study_design, curr_data])
-
-    return study_design
+    return study_data

@@ -96,6 +96,9 @@ def Validation_Rules(re, datetime, current_object, data_table, file_name, valid_
                 Required_column, Rule_Found = check_confimation_rules(header_name, current_object, data_table, file_name,
                                                                       datetime, min_date, max_date, Rule_Found, re)
 
+        if file_name in ["Validation_Panel.xlsx"]:
+            Required_column, Rule_Found = check_confimation_rules(header_name, current_object, data_table, file_name,
+                                                                  datetime, min_date, max_date, Rule_Found, re)
         if file_name in ["biorepository_id_map.csv", "reference_panel.csv", "autoimmune_cohort"]:
             Required_column, Rule_Found = check_biorepo_rules(header_name, current_object, data_table, file_name,
                                                               Rule_Found, valid_cbc_ids)
@@ -226,18 +229,19 @@ def check_ID_validation(header_name, current_object, file_name, data_table, re, 
         if ("Aliquot_ID" in data_table.columns):
             current_object.check_for_dup_ids(file_name, header_name)
     elif header_name in ["Assay_ID"]:
-        pattern_str = '[_]{1}[0-9]{3}$'
-        current_object.check_id_field(file_name, data_table, re, header_name, pattern_str, valid_cbc_ids, "XX_XXX")
-        current_object.check_assay_special(data_table, header_name, "assay.csv", file_name, re)
+        if file_name not in ["Validation_Panel.xlsx"]:
+            pattern_str = '[_]{1}[0-9]{3}$'
+            current_object.check_id_field(file_name, data_table, re, header_name, pattern_str, valid_cbc_ids, "XX_XXX")
+            current_object.check_assay_special(data_table, header_name, "assay.csv", file_name, re)
         if file_name in ["assay.csv"]:
             current_object.check_for_dup_ids(file_name, header_name)
     elif header_name in ["Biorepository_ID", "Parent_Biorepository__ID"]:
         pattern_str = 'LP[0-9]{5}[ ]{1}0001$'
         current_object.check_id_field(file_name, data_table, re, header_name, pattern_str, valid_cbc_ids, "LPXXXXXX 0001")
     elif header_name in ["Subaliquot_ID"]:
-        pattern_str = 'LP[0-9]{5}[ ]{1}[9]{1}[0-9]{3}$'
-        current_object.check_id_field(file_name, data_table, re, header_name, pattern_str, valid_cbc_ids, "LPXXXXXX 9XXX")
-#        current_object.check_for_dup_ids(file_name, header_name)
+        if file_name not in ["Validation_Panel.xlsx"]:
+            pattern_str = 'LP[0-9]{5}[ ]{1}[9]{1}[0-9]{3}$'
+            current_object.check_id_field(file_name, data_table, re, header_name, pattern_str, valid_cbc_ids, "LPXXXXXX 9XXX")
         if ("Biorepository_ID" in data_table.columns):
             current_object.check_if_substr_2(data_table, "Biorepository_ID", "Subaliquot_ID", file_name, header_name)
         elif ("Parent_Biorepository_ID" in data_table.columns):
@@ -339,11 +343,11 @@ def check_demographic(header_name, current_object, data_table, file_name, dateti
     if Rule_Found is True:
         pass
     elif (header_name in ['Age']):
-        current_object.check_if_number(file_name, data_table, header_name, "None", "None", ["Not Reported"], 0, 150, "float")
+        current_object.check_if_number(file_name, data_table, header_name, "None", "None", ["Not Reported", "90+"], 0, 150, "float")
     elif (header_name in ['Race', 'Ethnicity', 'Gender', 'Sex_At_Birth']):
         if (header_name in ['Race']):
             list_values = ['White', 'American Indian or Alaska Native', 'Black or African American', 'Asian',
-                           'Native Hawaiian or Other Pacific Islander', 'Other', 'Multirace', 'Not Reported', 'Unknown']
+                           'Native Hawaiian or Other Pacific Islander', 'Other', 'Multirace', 'Unknown']  # removing 'Not Reported'
         elif (header_name in ['Ethnicity']):
             list_values = ['Hispanic or Latino', 'Not Hispanic or Latino', 'Unknown',  'Not Reported']
         elif (header_name in ['Gender', 'Sex_At_Birth']):
@@ -411,9 +415,15 @@ def check_base_line_demo(header_name, current_object, data_table, file_name, dat
         pass
     elif "Visit_Date_Duration_From_Index" in header_name:
         current_object.check_if_number(file_name, data_table, header_name, 'None', "None", ["Unknown"], -1e9, 1e9, "int")
-    elif header_name in ["Height", "Weight", "BMI"]:
+    elif header_name in ["Weight"]:
         current_object.check_if_number(file_name, data_table, header_name, 'None', "None",
-                                       ["Not Reported", "N/A"], 1, 500, "float")
+                                       ["Not Reported", "N/A"], 1, 1000, "float")  # heaviest weight 1000 lbs (can adjust)
+    elif header_name in ["Height"]:
+        current_object.check_if_number(file_name, data_table, header_name, 'None', "None",
+                                       ["Not Reported", "N/A"], 1, 96, "float")   # 96 inch is 8 feet tall
+    elif header_name in ["BMI"]:
+        current_object.check_if_number(file_name, data_table, header_name, 'None', "None",
+                                       ["Not Reported", "N/A"], 1, 100, "float")
     elif header_name in ["Location", "Biospecimens_Collected", "Biospecimens Collected", "Baseline", "Baseline_Visit"]:
         if header_name in ['Location']:
             list_values = ['Northeast', 'Midwest', 'South', 'West', 'Not Reported', 'Other'] + state_list
@@ -431,9 +441,10 @@ def check_base_line_demo(header_name, current_object, data_table, file_name, dat
             list_values = ["Yes", "No", "Unknown", "Not Reported"]
         else:
             list_values = ["New Condition", "No Change", "Condition Improved", "Condition Deteriorated",
-                           "Condition Resolved", "Condition Status Unknown", "Not Reported"]
+                           "Condition Resolved", "Condition Status Unknown", "Not Reported", "N/A"]
         if (header_name in "Obesity") and (file_name in "baseline.csv"):
-            list_values = ["Underweight", "Normal Weight", "Overweight", "Obesity", "Class 3 Obesity", "Not Reported"]
+            list_values = ["Underweight", "Normal Weight", "Overweight", "Obesity", "Class 1 Obesity", "Class 2 Obesity",
+                           "Class 3 Obesity", "Not Reported"]
         current_object.check_in_list(file_name, data_table, header_name, "None", "None", list_values)
 #        current_object.check_pike_dups(file_name, header_name)
     elif "Other_Health_Condition_Description_Or_ICD10_codes" in header_name:
@@ -444,7 +455,8 @@ def check_base_line_demo(header_name, current_object, data_table, file_name, dat
         dep_list = ["New Condition", "No Change", "Condition Improved", "Condition Deteriorated",
                     "Condition Resolved", "Condition Status Unknown", "Not Reported"]
         if (file_name in "baseline.csv"):
-            dep_list = ["Underweight", "Normal Weight", "Overweight", "Obesity", "Class 3 Obesity", "Not Reported"]
+            dep_list = ["Underweight", "Normal Weight", "Overweight", "Obesity", "Class 1 Obesity", "Class 2 Obesity",
+                        "Class 3 Obesity", "Not Reported"]
         current_object.unknown_list_dependancy(file_name, header_name, data_table, "Obesity", dep_list)
         current_object.check_pike_dups(file_name, header_name)
     elif "ICD10_codes" in header_name or "ICD-10_codes" in header_name:
@@ -462,9 +474,9 @@ def check_base_line_demo(header_name, current_object, data_table, file_name, dat
             validate_comorbid_types(current_object, file_name, data_table, header_name, depend_col,
                                     ["No", "Unknown", "Not Reported"], ["Yes"])
         else:
-            validate_comorbid_types(current_object, file_name, data_table, header_name, depend_col, ["No"],
+            validate_comorbid_types(current_object, file_name, data_table, header_name, depend_col, ["N/A", "Not Reported"],
                                     ["New Condition", "No Change", "Condition Improved", "Condition Deteriorated",
-                                     "Condition Resolved", "Condition Status Unknown"])
+                                     "Condition Resolved", "Condition Status Unknown", "Not Reported"])
             current_object.compare_list_sizes(file_name, header_name, depend_col)  # follow_up only
     elif header_name in ["ECOG_Status"]:
         list_values = [0, 1, 2, 3, 4, "Not Reported"]
@@ -485,9 +497,9 @@ def check_base_line_demo(header_name, current_object, data_table, file_name, dat
             list_values = ["Never user", "Current non-user", "Current every day user", "Current some day user", "Former user",
                            "User, current status unknown", "Current user, frequency unknown", "Not Reported"]
         current_object.check_in_list(file_name, data_table, header_name, "None", "None", list_values)
-        current_object.check_pike_dups(file_name, header_name)
+        # current_object.check_pike_dups(file_name, header_name)
     elif "Drug_Type" in header_name:
-        current_object.check_in_list(file_name, data_table, header_name, "Drug_Use", ["Never user", "Current non-user", "Not Reported"], "N/A")
+        current_object.check_in_list(file_name, data_table, header_name, "Drug_Use", ["Never user", "Current non-user", "Not Reported"], ["Not Reported", "N/A"])
         current_object.check_if_string(file_name, data_table, header_name, "Drug_Use",
                                        ["Current every day user", "Current some day user", "Former user",
                                         "User, current status unknown", "Current user, frequency unknown"], ["N/A"],
@@ -515,11 +527,14 @@ def check_base_line_demo(header_name, current_object, data_table, file_name, dat
 
 
 def validate_comorbid_types(current_object, file_name, data_table, header_name, depend_col, no_values, yes_values):
-#    current_object.check_in_list(file_name, data_table, header_name, depend_col, "Not Reported", ["Not Reported"])
-    current_object.check_in_list(file_name, data_table, header_name, depend_col, no_values, ["N/A"])
+    current_object.check_in_list(file_name, data_table, header_name, depend_col, ["N/A"], ["N/A"])
+    if file_name in "baseline.csv":
+        current_object.check_in_list(file_name, data_table, header_name, depend_col, ["Not Reported"], ["Not Reported", "N/A"])
+    else:
+        current_object.check_in_list(file_name, data_table, header_name, depend_col, ["Not Reported"], ["Not Reported"])
     current_object.check_if_string(file_name, data_table, header_name, depend_col, yes_values, [],
                                    required="Required, if CBC has access to data.")
-    current_object.unknown_list_dependancy(file_name, header_name, data_table, depend_col, ["Not Reported"] + no_values + yes_values)
+    current_object.unknown_list_dependancy(file_name, header_name, data_table, depend_col, no_values + yes_values)
 
 
 def check_biospecimen(header_name, current_object, data_table, file_name, datetime, max_date, curr_year, Rule_Found,
@@ -605,7 +620,7 @@ def check_processing_rules(header_name, current_object, data_table, file_name, d
         if (header_name in ["Equipment_Type"]):
             list_values = ['Refrigerator', '-80 Refrigerator', 'LN Refrigerator', 'Microsope', 'Pipettor',
                            'Controlled-Rate Freezer', 'Automated-Cell Counter', '-80 Freezer',
-                           'LN Freezer', 'Centrifuge', 'Microscope']
+                           'LN Freezer', 'Centrifuge', 'Microscope', 'BSC', '4C Refrigerator']
 
         elif (header_name in ["Reagent_Name"]):
             list_values = (['DPBS', 'Ficoll-Hypaque', 'RPMI-1640, no L-Glutamine', 'Fetal Bovine Serum',
@@ -613,7 +628,7 @@ def check_processing_rules(header_name, current_object, data_table, file_name, d
                             'DMSO, Cell Culture Grade', 'Vital Stain Dye'])
         elif (header_name in ["Consumable_Name"]):
             list_values = ["50 mL Polypropylene Tube", "15 mL Conical Tube", "Cryovial Label",
-                           "2mL Cryovial"]
+                           "2 mL Cryovial", "CPT Tube"]
         current_object.check_in_list(file_name, data_table, header_name, "Biospecimen_Type", ["PBMC"], list_values)
         current_object.unknown_list_dependancy(file_name, header_name, data_table, "Biospecimen_Type", bio_type_list)
     elif ("Aliquot" in header_name) or ("Equipment_ID" in header_name):
@@ -633,13 +648,20 @@ def check_confimation_rules(header_name, current_object, data_table, file_name, 
         current_object.check_if_string(file_name, data_table, header_name, "None", "None", [])
     elif ('Test_Batch_ID' in header_name):
         current_object.check_if_string(file_name, data_table, header_name, "None", "None", [])
+    elif ('Date_of_Test' in header_name):
+        current_object.check_date(datetime, file_name, data_table, header_name, "None", "None", False, "Time")
     elif ("Assay_Target_Organism" in header_name):
         current_object.check_if_string(file_name, data_table, header_name, "None", "None", [])
         current_object.check_assay_special(data_table, header_name, "assay.csv", file_name, re)
+    elif ("Assay_Cutoff_Units" in header_name):
+        current_object.check_in_list(file_name, data_table, header_name, "Assay_Cutoff", ["N/A"], ["N/A"])
+        current_object.check_if_string(file_name, data_table, header_name, "None", "None", ["N/A"])
+    elif ("Assay_Cutoff" in header_name):
+        current_object.check_if_string(file_name, data_table, header_name, "None", "None", ["N/A"])
     elif (header_name in ["Assay_Target_Sub_Region", "Measurand_Antibody", "Derived_Result"]):
         current_object.check_if_string(file_name, data_table, header_name, "None", "None", ["N/A"])
     elif (header_name in ["Interpretation"]):
-        list_values = ['positive', 'negative', 'reactive', 'reaction', 'equivocal']
+        list_values = ['positive', 'negative', 'reactive', 'reaction', 'equivocal', 'indeterminate']
         current_object.check_interpertation(file_name, data_table, header_name, list_values)
     elif (header_name in ["Duration_Of_Test_Units", "Duration_In_Fridge_Units"]):
         list_values = ['Seconds', 'seconds', 'Minutes', 'minute', 'Hours', 'hour', 'N/A']
@@ -648,7 +670,7 @@ def check_confimation_rules(header_name, current_object, data_table, file_name, 
         Required_column = "Yes"
         current_object.check_if_number(file_name, data_table, header_name, "None", "None", ["N/A"], 0, 5000, "float")
     elif (header_name in ["Assay_Replicate", "Sample_Dilution"]):
-        current_object.check_if_number(file_name, data_table, header_name, "None", "None", [], 0, 200, "int")
+        current_object.check_if_number(file_name, data_table, header_name, "None", "None", [], 0, 200, "float")
     elif (header_name in ["Raw_Result", "Positive_Control_Reading", "Negative_Control_Reading"]):
         current_object.check_if_number(file_name, data_table, header_name, "None", "None", ["N/A"], 0, 1e9, "float")
     elif header_name in ["Sample_Type"]:
@@ -826,13 +848,14 @@ def check_vaccine_status(header_name, current_object, data_table, file_name, Rul
         current_object.check_in_list(file_name, data_table, header_name, "SARS-CoV-2_Vaccination_Side_Effects", "Not Other", ["N/A"])
     elif "SARS-CoV-2_Vaccination_Side_Effects" in header_name:
         list_values = ["Fever", "Fatigue", "Chills", "Headache", "Arm Pain", "Rash", "Muscle Aches",
-                       "Anaphylaxis", "Joint Aches", "Other", "No Side Effects Reported"]
+                       "Anaphylaxis", "Joint Aches", "Other", "No Side Effects Reported", "N/A"]
         current_object.check_in_list(file_name, data_table, header_name, "Vaccination_Status",
                                      no_vaccine, ["N/A"])
         current_object.check_in_list(file_name, data_table, header_name, "Vaccination_Status",
                                      has_vaccine, list_values)
     elif header_name in ["SARS-CoV-2_Vaccine_Type"]:
         current_object.check_in_list(file_name, data_table, header_name, "Vaccination_Status", no_vaccine, ["N/A"])
+        current_object.check_in_list(file_name, data_table, header_name, "Vaccination_Status", ["Dose 1 of 1"], ["Johnson & Johnson"])
         current_object.check_if_string(file_name, data_table, header_name, "Vaccination_Status", has_vaccine, [])
     elif "SARS-CoV-2_Vaccination_Date_Duration_From_Index" in header_name:
         current_object.check_in_list(file_name, data_table, header_name, "Vaccination_Status", no_vaccine, ["N/A"])
@@ -880,7 +903,7 @@ def check_covid_hist(header_name, current_object, data_table, file_name, Rule_Fo
         list_values = ["Runny Nose", "Sore Throat", "Fever", "Chills", "Muscle Ache", "Runny Nose", "Sore Throat",
                        "Loss of Smell", "Loss of Taste", "Cough", "Headache", "Difficulty Breathing",
                        "Nausea or Vomiting", "Diarrhea", "Chest Pain", "Shortness of Breath", "Abdominal Pain", "Rigors",
-                       "Wheezing", "Fatigue", "No symptoms reported", "Other"]
+                       "Wheezing", "Fatigue", "No symptoms reported", "Other", "N/A", "Congestion"]
         current_object.check_in_list(file_name, data_table[neg_data], header_name, "None", "Negative/ Not Reported", ["N/A"])
         current_object.check_in_list(file_name, data_table[pos_data], header_name, "None", "Positive", list_values)
 
@@ -1029,12 +1052,92 @@ def check_comorbid_hist(pd, sql_tuple, curr_obj):
                 Master_Dict = make_dict(curr_obj, Master_Dict, filt_table,  type_var, cat_var, curr_idx)
 
 
+def get_visit_list(visit_list, template, data_table):
+    if template in data_table:
+        new_visits = data_table[template]["Data_Table"]
+        new_visits = new_visits["Visit_Info_ID"].tolist()
+        visit_list = visit_list + new_visits
+    return visit_list
+
+
+def check_vacc_hist(pd, sql_tuple, curr_obj):
+    if len(curr_obj.All_Part_ids) == 0:     # no Participant data in submission, no need to run this function
+        return
+    data_table = curr_obj.Data_Object_Table
+
+    visit_list = pd.read_sql(("SELECT Visit_Info_ID FROM Participant_Visit_Info;"), sql_tuple[1])
+    visit_list = visit_list["Visit_Info_ID"].tolist()
+
+    visit_list = get_visit_list(visit_list, "baseline.csv", data_table)  # new visits from baseline
+    visit_list = get_visit_list(visit_list, "followup.csv", data_table)  # new visits from followup
+    x = list(set(visit_list))
+    all_list = pd.DataFrame({'Visit_Info_ID': x})
+    all_list['Research_Participant_ID'] = [i[:9] for i in all_list["Visit_Info_ID"]]
+    try:
+        filt_visit = curr_obj.All_Part_ids.merge(all_list)
+    except Exception as e:
+        print(e)
+
+    if "covid_history.csv" in data_table:
+        x = data_table["covid_history.csv"]["Data_Table"].merge(filt_visit, how="right", on="Visit_Info_ID", indicator=True)
+        error_data = x.query("_merge not in ['both']")
+        error_msg = "Visit was found in baseline or followup, but there is no event information in covid_history"
+        for index in error_data.index:
+            curr_obj.add_error_values("Error", "Missing_Visit_Info.csv", int(index) + 1,
+                                      "Visit_Info_ID", error_data["Visit_Info_ID"][index], error_msg)
+
+    if "covid_vaccination_status.csv" in data_table:
+        vacc_table = data_table["covid_vaccination_status.csv"]["Data_Table"]
+        if "SARS-CoV-2_Vaccination_Date_Duration_From_Index" not in vacc_table.columns:  # file not included in submission
+            return
+        x = vacc_table.merge(filt_visit, how="right", on="Visit_Info_ID", indicator=True)
+        error_data = x.query("_merge not in ['both']")
+        error_msg = "Visit was found in baseline or followup, but there is no event information in covid_vaccination_status"
+        for index in error_data.index:
+            curr_obj.add_error_values("Error", "Missing_Visit_Info.csv", int(index) + 1,
+                                      "Visit_Info_ID", error_data["Visit_Info_ID"][index], error_msg)
+
+        for curr_id in curr_obj.All_Part_ids["Research_Participant_ID"]:
+            curr_part = vacc_table.query("Research_Participant_ID in @curr_id")
+            if "Visit_Number" in curr_part.columns:
+                curr_part["Visit_Number"] = curr_part["Visit_Number"].replace("Baseline(1)", "1")
+                curr_part["Visit_Number"] = curr_part["Visit_Number"].replace("Baseline (1)", "1")
+            else:
+                curr_part["Visit_Number"] = [float(i[-2:]) for i in curr_part["Visit_Info_ID"]]
+            try:
+                curr_part["SARS-CoV-2_Vaccination_Date_Duration_From_Index"].replace("N/A", -10000, inplace=True)
+                curr_part["SARS-CoV-2_Vaccination_Date_Duration_From_Index"].replace("Not reported", "Not Reported", inplace=True)
+                curr_part["SARS-CoV-2_Vaccination_Date_Duration_From_Index"].replace("Not Reported", -10000, inplace=True)
+                curr_part = curr_part.sort_values(['SARS-CoV-2_Vaccination_Date_Duration_From_Index', "Visit_Number"],
+                                                  ascending=[True, True])
+            except Exception as e:
+                print(e)
+            vacc_list = curr_part["Vaccination_Status"].tolist()
+            miss_d1 = "Dose 2 of 2" in vacc_list and "Dose 1 of 2" not in vacc_list
+            miss_d2 = "Dose 3" in vacc_list and ("Dose 2 of 2" not in vacc_list and "Dose 2" not in vacc_list)
+            miss_d2a = "Booster 1" in vacc_list and ("Dose 1 of 1" not in vacc_list and "Dose 2 of 2" not in vacc_list)
+            curr_obj.add_miss_vac_errors(curr_part, curr_id, miss_d1, miss_d2, miss_d2a)
+
+            index = [i for i in curr_part.index if ("Dose" in curr_part.loc[i, "Vaccination_Status"] or
+                                                    "Booster" in curr_part.loc[i, "Vaccination_Status"])]
+            if len(index) > 0:
+                index = min(index)
+                unvacc = curr_part.loc[index:].query("Vaccination_Status in ['Unvaccinated']")
+                for err in unvacc.index:
+                    error_msg = "Visit Number: " + str(unvacc.loc[err]["Visit_Number"]) + " is Unvaccinated. Particiapnt has prior vaccinae dosages"
+                    curr_obj.add_error_values("Error", "Dosage_Errors.csv", int(err) + 1,
+                                              "Research_Participant_ID", curr_id, error_msg)
+
+
 def make_dict(curr_obj, master_dict, filt_table, type_var, cat_var, index):
     visit_num = int(filt_table.iloc[index]["Visit_Number"])
     found_types = filt_table.iloc[index][type_var]
-    found_types = [i.strip() for i in found_types]
     found_status = filt_table.iloc[index][cat_var]
     visit_type = filt_table.iloc[index]["Visit_Type"]
+
+    found_types = [i.strip() for i in found_types]
+    found_status = [i.strip() for i in found_status]
+
     if visit_type == "Baseline":
         found_status = found_status*len(found_types)
         found_status = [i.replace("Yes", "New Condition") for i in found_status]
@@ -1072,3 +1175,28 @@ def make_dict(curr_obj, master_dict, filt_table, type_var, cat_var, index):
                 curr_obj.add_error_values("Error", "Cross_Sheet_Comobidity.csv", int(filt_table.loc[0]["index"]) + 2,
                                           "Research_Participant_ID", filt_table.loc[0]["Research_Participant_ID"], x)
     return master_dict
+
+
+def check_baseline_date(current_object, pd, sql_tuple, parse):
+    data_table = current_object.Data_Object_Table["baseline_visit_date.csv"]["Data_Table"]
+    part_list = pd.read_sql(("SELECT Research_Participant_ID FROM Participant"), sql_tuple[1])
+
+    missing = data_table.merge(part_list, indicator=True, how="left")
+    has_data = missing.query("_merge in ['both']")
+    missing = missing.query("_merge not in ['both']")
+
+    sunday_logic = [parse(i).weekday() == 6 for i in has_data["Sunday_Of_Week"]]
+    good_data = has_data[[i is True for i in sunday_logic]]
+    bad_data = has_data[[i is False for i in sunday_logic]]
+
+    for i in good_data.index:
+        try:
+            visit_day = parse(good_data["Sunday_Of_Week"][i]).date()
+            part_id = good_data["Research_Participant_ID"][i]
+            sql_query = (f"update `seronetdb-Vaccine_Response`.Participant set Sunday_Prior_To_First_Visit = '{visit_day}' " +
+                        f"where Research_Participant_ID = '{part_id}'")
+            sql_tuple[1].execute(sql_query)
+        except Exception as e:
+            print(e)
+        finally:
+            sql_tuple[2].connection.commit()
