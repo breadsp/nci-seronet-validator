@@ -1,12 +1,12 @@
 from import_loader_v2 import time, pd, sd, os, re, colored, pd_s3, pathlib, cprint, shutil, datetime, parse
-from import_loader_v2 import set_up_function, get_template_data, get_box_data
+from import_loader_v2 import set_up_function, get_template_data, get_box_data_v2
 import hashlib
 
 from get_data_to_check_v2 import get_summary_file
 import db_loader_ref_pannels
 # import db_loader_vac_resp
 import db_loader_v4
-from bio_repo_map import bio_repo_map
+#from bio_repo_map import bio_repo_map
 
 from connect_to_sql_db import connect_to_sql_db
 from File_Submission_Object_v2 import Submission_Object
@@ -20,7 +20,7 @@ file_sep, s3_client, s3_resource, Support_Files, validation_date, box_dir = set_
 #  study_type = "Refrence_Pannel"
 study_type = "Vaccine_Response"
 
-template_df, dbname = get_template_data(box_dir, file_sep, study_type)
+template_df, dbname = get_template_data(pd, box_dir, file_sep, study_type)
 print("Initialization took %.2f seconds" % (time.time() - start_time))
 
 
@@ -48,10 +48,13 @@ def Data_Validation_Main(study_type):
     if make_rec_report is True:
         generate_rec_report(sql_tuple, s3_client, bucket)
 ###############################################################################################
-    if check_BSI_tables is True:
-        check_bio_repo_tables(s3_client, s3_resource, study_type)  # Create BSI report using file in S3 bucket
+#    if check_BSI_tables is True:
+#        check_bio_repo_tables(s3_client, s3_resource, study_type)  # Create BSI report using file in S3 bucket
 ###############################################################################################
     if study_type == "Refrence_Pannel":
+        # sql_table_dict = db_loader_ref_pannels.Db_loader_main(sql_tuple, validation_date)
+                                                     
+        
         sql_table_dict = db_loader_v4.Db_loader_main("Reference Pannel Submissions", sql_tuple, validation_date,
                                                      Update_Assay_Data=False, Update_BSI_Tables=check_BSI_tables,
                                                      add_serology_data=False, Add_Blinded_Results=True,
@@ -63,12 +66,12 @@ def Data_Validation_Main(study_type):
 # compares S3 destination to S3-Passed and S3-Failed to get list of submissions to work
     try:
         summary_path = root_dir + file_sep + "Downloaded_Submissions.xlsx"
-        summary_file = get_summary_file(os, pd, root_dir, file_sep, s3_client, summary_path, "Files_To_Validate")
+        summary_file = get_summary_file(os, pd, root_dir, file_sep, s3_client, s3_resource, summary_path, "Files_To_Validate")
 #############################################################################################
 # pulls the all assay data directly from box
         start_time = time.time()
-        assay_data, assay_target, all_qc_data, converion_file = get_box_data.get_assay_data("CBC_Data")
-        study_design = get_box_data.get_study_design()
+        assay_data, assay_target, all_qc_data, converion_file = get_box_data_v2.get_assay_data("CBC_Data")
+        study_design = get_box_data_v2.get_study_design()
 
         print("\nLoading Assay Data took %.2f seconds" % (time.time()-start_time))
 ############################################################################################
@@ -136,13 +139,15 @@ def Data_Validation_Main(study_type):
                 try:
                     current_sub_object, study_name = populate_object(current_sub_object, curr_file, list_of_files,
                                                                      Support_Files, study_type)
+                    if study_name == "Accrual_Reports":
+                        print("##  Submission is an Accrual Report##")
                     if study_name != study_type:
                         print(f"##  Submission not in {study_type}, correct and rerun ##")
                         continue
                     col_err_count = current_sub_object.check_col_errors(file_sep, curr_file)
                     if col_err_count > 0:
                         print(colored("Submission has Column Errors, Data Validation NOT Preformed", "red"))
-                        continue
+                        #continue
                     current_sub_object = zero_pad_ids(current_sub_object)
                     current_sub_object.get_all_unique_ids(re)
                     current_sub_object.populate_missing_keys(sql_tuple)
@@ -260,15 +265,15 @@ def close_connections(file_name, conn_tuple):
     conn_tuple[1].dispose()  # engine
 
 
-def check_bio_repo_tables(s3_client, s3_resource, study_type):
-    print("\n## Checking Latest BSI report that was uploaded to S3 ##")
-    start_time = time.time()
-    dup_df = bio_repo_map(s3_client, s3_resource, study_type)
-    if len(dup_df) == 0:
-        print("## Biorepository_ID_map.xlsx file has been updated ## \n")
-    else:
-        print("## Duplicate IDs were found in the Biorepository.  Please Fix## \n")
-    print("Biorepository Report took %.2f seconds" % (time.time() - start_time))
+#def check_bio_repo_tables(s3_client, s3_resource, study_type):
+#    print("\n## Checking Latest BSI report that was uploaded to S3 ##")
+#    start_time = time.time()
+#    dup_df = bio_repo_map(s3_client, s3_resource, study_type)
+#    if len(dup_df) == 0:
+#        print("## Biorepository_ID_map.xlsx file has been updated ## \n")
+#    else:
+##        print("## Duplicate IDs were found in the Biorepository.  Please Fix## \n")
+#    print("Biorepository Report took %.2f seconds" % (time.time() - start_time))
 
 
 def sort_CBC_list(CBC_Folders):

@@ -197,7 +197,7 @@ def check_all_sheet_rules(header_name, current_object, file_name, data_table, Ru
         current_object.check_if_string(file_name, data_table, header_name, "None", "None", [])
         current_object.check_in_meta(file_name, data_table, header_name, "study_design.csv", "Cohort_Name")
     elif header_name in ["Visit", "Visit_Number"]:
-        list_values = ["Baseline(1)"] + list(range(1, 20))
+        list_values = ["Baseline(1)"] + list(range(1, 20)) + [z+i for i in ["A", "B", "C" ,"D"] for z in ["0", "1", "2", "3", "4"]]
         current_object.check_in_list(file_name, data_table, header_name, "None", "None", list_values)
     else:
         return Required_column, False
@@ -214,14 +214,14 @@ def check_ID_validation(header_name, current_object, file_name, data_table, re, 
         if (file_name in ["demographic.csv", "prior_clinical_test.csv", "baseline.csv"]):
             current_object.check_for_dup_ids(file_name, header_name)
     elif header_name in ["Biospecimen_ID"]:
-        pattern_str = '[_]{1}[A-Z, 0-9]{6}[_]{1}[0-9]{3}$'
+        pattern_str = '[_]{1}[A-Z, 0-9]{6}[_]{1}[A-Z, 0-9]{3}$'
         current_object.check_id_field(file_name, data_table, re, header_name, pattern_str, valid_cbc_ids, "XX_XXXXXX_XXX")
         if (header_name in ['Research_Participant_ID']) and (header_name in ["Biospecimen_ID"]):
             current_object.check_if_substr(data_table, "Research_Participant_ID", "Biospecimen_ID", file_name, header_name)
         if file_name in ["biospecimen.csv"]:
             current_object.check_for_dup_ids(file_name, header_name)
     elif header_name in ["Aliquot_ID", "CBC_Biospecimen_Aliquot_ID"]:
-        pattern_str = '[_]{1}[A-Z, 0-9]{6}[_]{1}[0-9]{3}[_]{1}[0-9]{1,2}$'
+        pattern_str = '[_]{1}[A-Z, 0-9]{6}[_]{1}[A-Z, 0-9]{3}[_]{1}[0-9]{1,2}$'
         current_object.check_id_field(file_name, data_table, re, header_name, pattern_str, valid_cbc_ids, "XX_XXXXXX_XXX_XX")
 
         if ("Aliquot_ID" in data_table.columns) and ("Biospecimen_ID" in data_table.columns):
@@ -239,7 +239,9 @@ def check_ID_validation(header_name, current_object, file_name, data_table, re, 
         pattern_str = 'LP[0-9]{5}[ ]{1}0001$'
         current_object.check_id_field(file_name, data_table, re, header_name, pattern_str, valid_cbc_ids, "LPXXXXXX 0001")
     elif header_name in ["Subaliquot_ID"]:
-        if file_name not in ["Validation_Panel.xlsx"]:
+        if "blinded_validation_panel" in file_name:
+            pattern_str = 'LP[0-9]{5}[ ]{1}[9]{1}[0-9]{3}$'
+        else:
             pattern_str = 'LP[0-9]{5}[ ]{1}[9]{1}[0-9]{3}$'
             current_object.check_id_field(file_name, data_table, re, header_name, pattern_str, valid_cbc_ids, "LPXXXXXX 9XXX")
         if ("Biorepository_ID" in data_table.columns):
@@ -414,7 +416,7 @@ def check_base_line_demo(header_name, current_object, data_table, file_name, dat
     if Rule_Found is True:
         pass
     elif "Visit_Date_Duration_From_Index" in header_name:
-        current_object.check_if_number(file_name, data_table, header_name, 'None', "None", ["Unknown"], -1e9, 1e9, "int")
+        current_object.check_if_number(file_name, data_table, header_name, 'None', "None", ["Unknown"], -500, 1000, "int")
     elif header_name in ["Weight"]:
         current_object.check_if_number(file_name, data_table, header_name, 'None', "None",
                                        ["Not Reported", "N/A"], 1, 1000, "float")  # heaviest weight 1000 lbs (can adjust)
@@ -627,8 +629,8 @@ def check_processing_rules(header_name, current_object, data_table, file_name, d
                             '200 mM L-Glutamine', '1M Hepes', 'Penicillin/Streptomycin',
                             'DMSO, Cell Culture Grade', 'Vital Stain Dye'])
         elif (header_name in ["Consumable_Name"]):
-            list_values = ["50 mL Polypropylene Tube", "15 mL Conical Tube", "Cryovial Label",
-                           "2 mL Cryovial", "CPT Tube"]
+            list_values = ["50 mL Polypropylene Tube", "15 mL Conical Tube", "15mL Conical Tube", "Cryovial Label",
+                           "2 mL Cryovial", "2mL Cryovial", "CPT Tube"]
         current_object.check_in_list(file_name, data_table, header_name, "Biospecimen_Type", ["PBMC"], list_values)
         current_object.unknown_list_dependancy(file_name, header_name, data_table, "Biospecimen_Type", bio_type_list)
     elif ("Aliquot" in header_name) or ("Equipment_ID" in header_name):
@@ -670,7 +672,7 @@ def check_confimation_rules(header_name, current_object, data_table, file_name, 
         Required_column = "Yes"
         current_object.check_if_number(file_name, data_table, header_name, "None", "None", ["N/A"], 0, 5000, "float")
     elif (header_name in ["Assay_Replicate", "Sample_Dilution"]):
-        current_object.check_if_number(file_name, data_table, header_name, "None", "None", [], 0, 200, "float")
+        current_object.check_if_number(file_name, data_table, header_name, "None", "None", [], 0, 25000, "float")
     elif (header_name in ["Raw_Result", "Positive_Control_Reading", "Negative_Control_Reading"]):
         current_object.check_if_number(file_name, data_table, header_name, "None", "None", ["N/A"], 0, 1e9, "float")
     elif header_name in ["Sample_Type"]:
@@ -685,7 +687,7 @@ def check_confimation_rules(header_name, current_object, data_table, file_name, 
         current_object.check_in_list(file_name, data_table, header_name, "Raw_Result", ["N/A"], ["N/A"])
     elif ("Biospecimen_Collection_to_Test_Duration" in header_name):
         Required_column = "Yes"
-        current_object.check_if_number(file_name, data_table, header_name, "None", "None", [], -1000, 1000, "float")
+        current_object.check_if_number(file_name, data_table, header_name, "None", "None", [], -1000, 4000, "float")
     else:
         return Required_column, False
     return Required_column, True
@@ -827,7 +829,7 @@ def check_shipping(current_object):
         shipping_table = current_object.Data_Object_Table["shipping_manifest.csv"]["Data_Table"]
         shipping_table["Volume"] = [i/1000 if i >= 1000 else i for i in shipping_table["Volume"].tolist()]
         compare_tables = shipping_table.merge(aliquot_table, left_on=["Current Label", "Volume"],
-                                              right_on=["Aliquot_ID", "Aliquot_Volume"], indicator=True, how="left")
+                                              right_on=["Aliquot_ID", "Aliquot_Volume"], indicator=True, how="outer")
         compare_tables = compare_tables.query("_merge not in ['both']")
         error_msg = "Aliquot ID in Shipping Manifest but not in Aliquot"
         current_object.update_error_table("Error", compare_tables, "shipping_manifest.csv",
@@ -1028,11 +1030,14 @@ def check_comorbid_hist(pd, sql_tuple, curr_obj):
     uni_part = list(set(visit_table["Research_Participant_ID"].tolist()))
 
     for iterZ in list_of_comorbids:
-        if iterZ in ["Organ_Transplant_Recipient"]:
-            cat_var = "Organ_Transplant_Recipient"
-            type_var = "Organ_Transplant_Description_Or_ICD10_codes"
-        else:
-            cat_var, type_var = [i for i in visit_table.columns if iterZ in i]
+        try:
+            if iterZ in ["Organ_Transplant_Recipient"]:
+                cat_var = "Organ_Transplant_Recipient"
+                type_var = "Organ_Transplant_Description_Or_ICD10_codes"
+            else:
+                cat_var, type_var = [i for i in visit_table.columns if iterZ in i]
+        except Exception as e:
+            print(e)
 
         col_list = ["Research_Participant_ID", cat_var, type_var, "Visit_Number", "Visit_Type"]
         test_table = visit_table[col_list]
@@ -1081,6 +1086,10 @@ def check_vacc_hist(pd, sql_tuple, curr_obj):
     if "covid_history.csv" in data_table:
         x = data_table["covid_history.csv"]["Data_Table"].merge(filt_visit, how="right", on="Visit_Info_ID", indicator=True)
         error_data = x.query("_merge not in ['both']")
+        covid_db = pd.read_sql(("SELECT * FROM Covid_History"), sql_tuple[1])
+        error_data = error_data.merge(covid_db["Visit_Info_ID"], how="left", indicator="Check_DB")
+        error_data = error_data.query("Check_DB not in ['both']")
+
         error_msg = "Visit was found in baseline or followup, but there is no event information in covid_history"
         for index in error_data.index:
             curr_obj.add_error_values("Error", "Missing_Visit_Info.csv", int(index) + 1,
@@ -1093,6 +1102,10 @@ def check_vacc_hist(pd, sql_tuple, curr_obj):
         x = vacc_table.merge(filt_visit, how="right", on="Visit_Info_ID", indicator=True)
         error_data = x.query("_merge not in ['both']")
         error_msg = "Visit was found in baseline or followup, but there is no event information in covid_vaccination_status"
+        covid_db = pd.read_sql(("SELECT * FROM Covid_Vaccination_Status"), sql_tuple[1])
+        error_data = error_data.merge(covid_db["Visit_Info_ID"], how="left", indicator="Check_DB")
+        error_data = error_data.query("Check_DB not in ['both']")
+
         for index in error_data.index:
             curr_obj.add_error_values("Error", "Missing_Visit_Info.csv", int(index) + 1,
                                       "Visit_Info_ID", error_data["Visit_Info_ID"][index], error_msg)
@@ -1112,7 +1125,9 @@ def check_vacc_hist(pd, sql_tuple, curr_obj):
                                                   ascending=[True, True])
             except Exception as e:
                 print(e)
-            vacc_list = curr_part["Vaccination_Status"].tolist()
+            data_db = pd.read_sql((f"SELECT Vaccination_Status FROM Covid_Vaccination_Status where Research_Participant_ID = '{curr_id}';"), sql_tuple[1])
+            vacc_list = curr_part["Vaccination_Status"].tolist() + data_db["Vaccination_Status"].tolist()
+
             miss_d1 = "Dose 2 of 2" in vacc_list and "Dose 1 of 2" not in vacc_list
             miss_d2 = "Dose 3" in vacc_list and ("Dose 2 of 2" not in vacc_list and "Dose 2" not in vacc_list)
             miss_d2a = "Booster 1" in vacc_list and ("Dose 1 of 1" not in vacc_list and "Dose 2 of 2" not in vacc_list)
@@ -1130,7 +1145,7 @@ def check_vacc_hist(pd, sql_tuple, curr_obj):
 
 
 def make_dict(curr_obj, master_dict, filt_table, type_var, cat_var, index):
-    visit_num = int(filt_table.iloc[index]["Visit_Number"])
+    visit_num = (filt_table.iloc[index]["Visit_Number"])
     found_types = filt_table.iloc[index][type_var]
     found_status = filt_table.iloc[index][cat_var]
     visit_type = filt_table.iloc[index]["Visit_Type"]
@@ -1156,7 +1171,7 @@ def make_dict(curr_obj, master_dict, filt_table, type_var, cat_var, index):
                 del master_dict[curr_type[1]]
             elif curr_type[1] in master_dict:
                 match_list.append(curr_type[1])
-                z = int(filt_table.iloc[index]["Visit_Number"])
+                z = filt_table.iloc[index]["Visit_Number"]
                 master_dict[curr_type[1]]["Visit_Number"] = z
             elif curr_type[1] not in master_dict and Status == "New Condition":  # condtion is missing but is new
                 master_dict[curr_type[1]] = {"Visit_Number": visit_num, "Visit_Type": visit_type, "Status": Status}

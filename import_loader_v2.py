@@ -24,9 +24,10 @@ import numpy as np
 import sqlalchemy as sd
 import icd10
 
+import aws_creds
 import aws_creds_prod
-import get_box_data
-import shipping_import
+import get_box_data_v2
+#import shipping_import
 import warnings
 import time
 from collections import Counter
@@ -88,15 +89,19 @@ def get_template_columns(template_dir):
     return pd.DataFrame({"Sheet_Name": sheet_name, "Column_Name": col_list})
 
 
-def get_template_data(box_dir, file_sep, study_name):
+def get_template_data(pd, box_dir, file_sep, study_name):
     if study_name == 'Refrence_Pannel':
-        template_dir = (box_dir + file_sep + "CBC Data Submission Documents" + file_sep + "Data Submission Templates")
+        template_dir = (box_dir + file_sep + "CBC Data Submission Documents" + file_sep + "Reference Panel Data Submission Templates")
         template_df = get_template_columns(template_dir)
         dbname = "seronetdb-Validated"  # name of the SQL database where data is saved
     elif study_name == 'Vaccine_Response':
-        template_dir = (box_dir + file_sep + "CBC Data Submission Documents" + file_sep + "Vaccine_Response_Study_Templates")
-
+        #template_dir = (box_dir + file_sep + "CBC Data Submission Documents" + file_sep + "Vaccine_Response_Study_Templates" + file_sep + "Data_Submission_Templates")
+        template_dir = r"C:\Seronet_Data_Validation\Vaccine_Response_Study_Templates"
         template_df = get_template_columns(template_dir)
+        dbname = "seronetdb-Vaccine_Response"  # name of the SQL database where data is saved
+    elif study_name == 'Accrual_Reports':
+        accrual_dir = (box_dir + file_sep + "CBC Data Submission Documents" + file_sep + "Vaccine_Response_Study_Templates" + file_sep + "Accrual_Report_Templates")
+        template_df = get_template_columns(accrual_dir)
         dbname = "seronetdb-Vaccine_Response"  # name of the SQL database where data is saved
     else:
         template_df = []

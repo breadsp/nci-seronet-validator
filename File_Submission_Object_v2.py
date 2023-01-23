@@ -222,9 +222,12 @@ class Submission_Object:
                         base_line["Visit_Type"] = "Baseline"
                     else:
                         base_line["Visit_Type"] = "Follow_Up"
-                    visit_info = visit_info.merge(base_line[["Research_Participant_ID", "Visit_Info_ID",
-                                                             "Visit_Number", "Visit_Type"]], how="outer")
-                    self.Data_Object_Table["visit_info_sql.csv"]["Data_Table"] = visit_info.drop_duplicates()
+                    try:
+                        visit_info = visit_info.merge(base_line[["Research_Participant_ID", "Visit_Info_ID",
+                                                                 "Visit_Number", "Visit_Type"]], how="outer")
+                        self.Data_Object_Table["visit_info_sql.csv"]["Data_Table"] = visit_info.drop_duplicates()
+                    except Exception as e:
+                        print(e)
 
     def correct_var_types(self, file_name, study_type):
         data_table = self.Data_Object_Table[file_name]['Data_Table']
@@ -318,16 +321,21 @@ class Submission_Object:
         else:
             try:
                 submit_table = self.Data_Object_Table['submission.csv']['Data_Table'][0]
-                id_list = [i for i in Support_Files if "SeroNet_Org_IDs.xlsx" in i]
-                id_conv = pd.read_excel(id_list[0], engine='openpyxl')
+                #id_list = [i for i in Support_Files if "SeroNet_Org_IDs.xlsx" in i]
+                id_list = r"C:\Seronet_Data_Validation\SeroNet_Org_IDs.xlsx"
+                #id_conv = pd.read_excel(id_list[0], engine='openpyxl')
+                id_conv = pd.read_excel(id_list, engine='openpyxl')
                 submit_name = submit_table.columns.values[1]
                 ref_test = submit_table.query("`Submitting Center` in ['confirmatory_clinical_test.csv']")
                 vac_test = submit_table.query("`Submitting Center` in ['biospecimen_test_result.csv']")
+                acc_test = submit_table.query("`Submitting Center` in ['Accrual_Participant_Info.csv']")
                 self.Intent = submit_table.query("`Submitting Center` == 'Submission Intent'").iloc[0, 1]
                 if len(ref_test) == 1:
                     study_name = "Refrence_Pannel"
                 elif len(vac_test) == 1:
                     study_name = "Vaccine_Response"
+                elif len(acc_test) == 1:
+                    study_name = "Accrual_Reports"
 
                 self.CBC_ID = id_conv.query("Institution == @submit_name")["Org ID"].tolist()[0]
                 self.Submitted_Name = submit_name
@@ -341,9 +349,9 @@ class Submission_Object:
                 self.CBC_ID = -1
                 self.Submit_Participant_IDs = "00"
                 self.Submit_Biospecimen_IDs = "00"
-            if len(self.Submit_Participant_IDs) == 0:
+            if self.Submit_Participant_IDs == 0:
                 self.Submit_Participant_IDs = "0"
-            if len(self.Submit_Biospecimen_IDs) == 0:
+            if self.Submit_Biospecimen_IDs == 0:
                 self.Submit_Biospecimen_IDs = "0"
         if self.CBC_ID > 0:
             print("The CBC Code for " + self.Submitted_Name + " Is: " + str(self.CBC_ID) + "\n")
@@ -415,8 +423,8 @@ class Submission_Object:
                 self.All_Ali_ids = self.All_Ali_ids + self.add_ids_to_list(iterF, header_list, "Aliquot_ID")
                 self.All_Ali_ids = self.All_Ali_ids + self.add_ids_to_list(iterF, header_list, "Current Label")
         self.All_Part_ids = self.clean_up_ids(re, "Research_Participant_ID", '[_]{1}[A-Z, 0-9]{6}$')
-        self.All_Bio_ids = self.clean_up_ids(re, "Biospecimen_ID", '[_]{1}[A-Z, 0-9]{6}[_]{1}[0-9]{3}$')
-        self.All_Ali_ids = self.clean_up_ids(re, "Aliquot_ID", '[_]{1}[A-Z, 0-9]{6}[_]{1}[0-9]{3}[_]{1}[0-9]{1,2}$')
+        self.All_Bio_ids = self.clean_up_ids(re, "Biospecimen_ID", '[_]{1}[A-Z, 0-9]{6}[_]{1}[A-Z, 0-9]{3}$')
+        self.All_Ali_ids = self.clean_up_ids(re, "Aliquot_ID", '[_]{1}[A-Z, 0-9]{6}[_]{1}[A-Z, 0-9]{3}[_]{1}[0-9]{1,2}$')
 
     def add_ids_to_list(self, curr_table, header_list, test_str):
         curr_ids = []
@@ -561,9 +569,9 @@ class Submission_Object:
         x = [i for i in curr_table.columns.tolist() if ("Comments" in i) or ("Index" in i)]
         curr_table.drop(x, inplace=True, axis=1)
 
-        curr_table = check_if_col(curr_table, "Research_Participant_ID", self.All_Part_ids)
-        curr_table = check_if_col(curr_table, "Biospecimen_ID", self.All_Bio_ids)
-        curr_table = check_if_col(curr_table, "Aliquot_ID", self.All_Ali_ids)
+        # curr_table = check_if_col(curr_table, "Research_Participant_ID", self.All_Part_ids)
+        # curr_table = check_if_col(curr_table, "Biospecimen_ID", self.All_Bio_ids)
+        # curr_table = check_if_col(curr_table, "Aliquot_ID", self.All_Ali_ids)
 
         curr_table.rename(columns={"Test_Result": "SARS_CoV_2_PCR_Test_Result"}, inplace=True)
         if "col_list" in kwargs:
@@ -617,7 +625,8 @@ class Submission_Object:
         error_data = data_table.merge(assay_table, on=header_name, indicator=True, how="left")
         error_data = error_data.query("_merge in ['left_only']")
         error_msg = "Value is not found in the database"
-        self.update_error_table("Error", error_data, sheet_name, header_name, error_msg, keep_blank=False)
+        if len(error_data) > 0:
+            self.update_error_table("Error", error_data, sheet_name, header_name, error_msg, keep_blank=False)
 
     def check_in_meta(self, file_name, data_table, header_name, meta_table, meta_col):
         meta_data = self.Data_Object_Table[meta_table]["Data_Table"]
@@ -712,7 +721,7 @@ class Submission_Object:
                     curr_data = data_table.loc[i, header_name]
                     curr_data = [curr_data]
                 if depend_col not in ["None"]:
-                    error_str = depend_col + " is " + str(data_table.loc[i, depend_col]) + ". "
+                    error_str = f"{depend_col} is {data_table.loc[i, depend_col]} and {header_name} is {data_table[header_name][i]}. "
                 if depend_col in ["None"] and depend_val not in ["None"]:
                     error_str = f"Participant is {depend_val} for COVID_Status.  "
                 error_msg = error_str + "Value must be one of the following: " + str(list_values)
@@ -775,7 +784,8 @@ class Submission_Object:
 
         if num_type == "int":
             #  is_float = good_data[header_name].apply(lambda x: str(x).is_integer() is False)
-            is_float = good_data[header_name].apply(lambda x: isinstance(x, (int)) is False)
+            #  is_float = good_data[header_name].apply(lambda x: isinstance(x, (int)) is False)
+            is_float = good_data[header_name].apply(lambda x: (x*10)%10 > 0)
             error_msg = (error_str + "Value must be an interger between " + str(lower_lim) + " and " +
                          str(upper_lim))
             self.update_error_table("Error", good_data[is_float], sheet_name, header_name, error_msg)
@@ -1112,6 +1122,17 @@ class Submission_Object:
     def check_comorbid_dict(self, pd, conn):
         norm_table = pd.read_sql(("SELECT * FROM Normalized_Comorbidity_Dictionary;"), conn)
         norm_table.fillna("N/A", inplace=True)
+        norm_table["Orgional_Description_Or_ICD10_codes"] = [i.lower() for i in norm_table["Orgional_Description_Or_ICD10_codes"]]
+        norm_table.drop_duplicates(inplace=True)
+
+        uni_comorbid = list(set(norm_table["Comorbid_Name"].tolist()))
+        for curr_idx in uni_comorbid:
+            filt_table = norm_table.query("Comorbid_Name == @curr_idx")
+            for curr_desc in filt_table["Orgional_Description_Or_ICD10_codes"]:
+                if len(curr_desc.split( "|")) > 1:  #multiple terms
+                    print("x")
+
+        
         error_table = pd.DataFrame(columns=["Sheet_Name", "Comorbidity_Catagory", "Comorbidity_Description"])
         miss_terms = []
 
@@ -1122,18 +1143,23 @@ class Submission_Object:
             follow_table = self.Data_Object_Table["follow_up.csv"]["Data_Table"]
             miss_terms = self.find_missing_terms(follow_table, norm_table, error_table, "follow_up.csv")
         if len(miss_terms) > 0:
-            print(miss_terms)
+            #print(miss_terms)
+            miss_terms.drop_duplicates(inplace=True)
 
     def find_missing_terms(self, df, norm_table, error_table, table_name):
         uni_cond = list(set(norm_table["Comorbid_Name"]))
         if len(df.columns) < len(uni_cond):  # file was not included in submission, code below will error
-            return
+            return []
         for curr_cond in uni_cond:
             filt_table = df[[i for i in df.columns if curr_cond in i]]
-            filt_table.drop(curr_cond, axis=1, inplace=True)
+            try:
+                filt_table.drop(curr_cond, axis=1, inplace=True)
+            except Exception:
+                print(f"{curr_cond} does not exist")
             if filt_table.shape[1] != 1:
                 print("error")
             else:
+                filt_table[filt_table.columns[0]] = [i.lower() for i in filt_table[filt_table.columns[0]]]
                 x = filt_table.merge(norm_table, left_on=filt_table.columns[0],
                                      right_on="Orgional_Description_Or_ICD10_codes", how="left", indicator=True)
                 x = x.query("_merge == 'left_only'")
@@ -1169,7 +1195,7 @@ class Submission_Object:
         if "visit_info_sql.csv" not in data_dict:
             return
         visit_info = data_dict["visit_info_sql.csv"]['Data_Table']
-        visit_info["Visit_Number"] = [int(i[-2:]) for i in visit_info["Visit_Info_ID"]]
+        visit_info["Visit_Number"] = [i[-2:] if i[-1] in ["A", "B", "C", "D"] else int(i[-2:]) for i in visit_info["Visit_Info_ID"]]
         if visit_type == "baseline":
             query_str = "Visit_Number in ['Baseline(1)']"
         elif visit_type == "followup":
@@ -1188,23 +1214,25 @@ class Submission_Object:
                     continue  # iterZ is an sql sheet and only has partial columns
                 baseline_visit = curr_data.query(query_str)
                 baseline_visit = baseline_visit.replace("Baseline(1)", 1)
+
                 try:
+                    baseline_visit["Visit_Number"] = [str(i) for i in  baseline_visit["Visit_Number"]]
+                    baseline_visit["Visit_Number"] = baseline_visit["Visit_Number"].replace('', "0")
+                    baseline_visit["Visit_Number"] = [i[-2:] if i[-1] in ["A", "B", "C", "D"] else int(i[-2:]) for i in baseline_visit["Visit_Number"]]
                     check_visit = baseline_visit.merge(visit_info, indicator=True, how="left")
-                except ValueError:
-                    baseline_visit["Visit_Number"] = [convert_data_type(c) for c in baseline_visit["Visit_Number"]]
-                    visit_info["Visit_Number"] = [convert_data_type(c) for c in visit_info["Visit_Number"]]
-                    check_visit = baseline_visit.merge(visit_info, indicator=True, how="left")
-                finally:
-                    check_visit = check_visit.query("_merge not in ['both']")
-                    check_visit.drop_duplicates(inplace=True)
-                    for i in check_visit.index:
-                        visit_num = check_visit.loc[i]["Visit_Number"]
-                        if visit_num == 1:
-                            error_msg = f"Participant has baseline visit in {iterZ} but missing data from baseline.csv"
-                        else:
-                            error_msg = f"Participant has visit number {visit_num} in {iterZ} but missing coresponding visit in follow_up.csv"
-                        self.add_error_values("Error", iterZ, i+2, "Research_Participant_ID",
-                                              check_visit.loc[i]["Research_Participant_ID"], error_msg)
+                except Exception as e:
+                    print(e)
+
+                check_visit = check_visit.query("_merge not in ['both']")
+                check_visit.drop_duplicates(inplace=True)
+                for i in check_visit.index:
+                    visit_num = check_visit.loc[i]["Visit_Number"]
+                    if visit_num == 1:
+                        error_msg = f"Participant has baseline visit in {iterZ} but missing data from baseline.csv"
+                    else:
+                        error_msg = f"Participant has visit number {visit_num} in {iterZ} but missing coresponding visit in follow_up.csv"
+                    self.add_error_values("Error", iterZ, i+2, "Research_Participant_ID",
+                                          check_visit.loc[i]["Research_Participant_ID"], error_msg)
 
 ######################################################################################################
     def write_col_errors(self, Error_Path):
