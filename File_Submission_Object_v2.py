@@ -170,7 +170,8 @@ class Submission_Object:
                 col_list = col_list + ["Visit_Number"]
         self.Data_Object_Table[file_name]["Key_Cols"] = col_list
         if (study_type == "Vaccine_Response"):
-            self.add_Visit_ID(file_name)
+            if "Column_List" in self.Data_Object_Table[file_name]:
+                self.add_Visit_ID(file_name)
 
     def cleanup_table(self, file_name):
         try:
@@ -222,6 +223,7 @@ class Submission_Object:
                         base_line["Visit_Type"] = "Baseline"
                     else:
                         base_line["Visit_Type"] = "Follow_Up"
+                        base_line["Visit_Number"] = [int(i[-2:]) for i in base_line["Visit_Info_ID"]]
                     try:
                         visit_info = visit_info.merge(base_line[["Research_Participant_ID", "Visit_Info_ID",
                                                                  "Visit_Number", "Visit_Type"]], how="outer")
@@ -328,7 +330,7 @@ class Submission_Object:
                 submit_name = submit_table.columns.values[1]
                 ref_test = submit_table.query("`Submitting Center` in ['confirmatory_clinical_test.csv']")
                 vac_test = submit_table.query("`Submitting Center` in ['biospecimen_test_result.csv']")
-                acc_test = submit_table.query("`Submitting Center` in ['Accrual_Participant_Info.csv']")
+                acc_test = submit_table.query("`Submitting Center` in ['Accrual_Participant_Info.csv', 'Accrual_Demographic_Data.csv']")
                 self.Intent = submit_table.query("`Submitting Center` == 'Submission Intent'").iloc[0, 1]
                 if len(ref_test) == 1:
                     study_name = "Refrence_Pannel"
@@ -460,6 +462,9 @@ class Submission_Object:
     def check_for_dup_ids(self, sheet_name, field_name):
         if sheet_name in self.Data_Object_Table:
             data_table = self.Data_Object_Table[sheet_name]['Data_Table']
+            if "Visit_Info_ID" in data_table.columns:
+                data_table = data_table.sort_values(["Research_Participant_ID", "Visit_Number"])
+                data_table.drop_duplicates(["Research_Participant_ID", "Visit_Number"], inplace=True,keep="first")
             data_table.drop_duplicates(inplace=True)
             if field_name in data_table.columns:
                 data_table = data_table[data_table[field_name].apply(lambda x: x not in ["N/A"])]
@@ -477,9 +482,11 @@ class Submission_Object:
         filt_list = self.create_filt_list(filt_list, col_list, "Research_Participant_ID")
         filt_list = self.create_filt_list(filt_list, col_list, "Visit_Number")
         filt_list = self.create_filt_list(filt_list, col_list, "Cohort")
+        filt_list = self.create_filt_list(filt_list, col_list, "Vaccination_Status")
+        filt_list = self.create_filt_list(filt_list, col_list, "SARS-CoV-2_Vaccine_Type")
+
 #        filt_list = self.create_filt_list(filt_list, col_list, "Biospecimen_ID")
 #        filt_list = self.create_filt_list(filt_list, col_list, "Aliquot_ID")
-#        filt_list = self.create_filt_list(filt_list, col_list, "Consumable_Name")
 #        filt_list = self.create_filt_list(filt_list, col_list, "Equipment_ID")
 #        filt_list = self.create_filt_list(filt_list, col_list, "Reagent_Name")
 
@@ -534,12 +541,14 @@ class Submission_Object:
 
     def update_keys(self, pd, header_name, id_str, connection_tuple):
         conn = connection_tuple[2]
-        engine = connection_tuple[1]
+        # engine = connection_tuple[1]
         if len(id_str) > 0:
             part_table = self.sql_col_df.query("Column_Name == @header_name")
             for i in part_table["Table_Name"].tolist():
                 z = self.sql_col_df.query("Table_Name == @i and Primary_Key == 'True'")
+                #z = z.query("'Visit_Info_ID' not in Column_Name")
                 select_var = ", ".join(z["Column_Name"].tolist())
+
                 if i in "Aliquot":
                     select_var = select_var + ", Aliquot_Volume"
                 test_qry = f"SELECT {select_var} FROM {i} WHERE {header_name} IN ({id_str});"
@@ -547,17 +556,20 @@ class Submission_Object:
                     table_names = ["prior_clinical_test.csv"]
                 else:
                     table_names = [z for z in self.sql_table_dict if i in self.sql_table_dict[z]]
+                    if "visit_info_sql.csv" in table_names:
+                        table_names.remove("visit_info_sql.csv")
                 if len(table_names) > 0:
-                    try:
-                        self.add_keys_to_tables(table_names[0], table_names[1], test_qry, pd, conn)
-                    except Exception as e:
-                        self.add_keys_to_tables(table_names[0], table_names[0], test_qry, pd, conn)
+                    if "baseline.csv" in table_names:
+                        print("x")
+                    self.add_keys_to_tables(table_names, test_qry, pd, conn)
 
-    def add_keys_to_tables(self, file_name, sql_name, query_str, pd, conn):
-        if file_name not in self.Data_Object_Table:
-            self.add_new_dict_data(file_name, query_str, pd, conn)
-        elif file_name in self.Data_Object_Table:
-            self.add_new_dict_data(sql_name, query_str, pd, conn)
+
+    def add_keys_to_tables(self, file_name, query_str, pd, conn):
+        for curr_table in file_name:
+            if curr_table not in self.Data_Object_Table:
+                self.add_new_dict_data(curr_table, query_str, pd, conn)
+            elif curr_table in self.Data_Object_Table:
+                self.add_new_dict_data(curr_table, query_str, pd, conn)
 
     def add_new_dict_data(self, file_name, query_str, pd, conn, **kwargs):
         if file_name not in self.Data_Object_Table:
@@ -1143,14 +1155,17 @@ class Submission_Object:
             follow_table = self.Data_Object_Table["follow_up.csv"]["Data_Table"]
             miss_terms = self.find_missing_terms(follow_table, norm_table, error_table, "follow_up.csv")
         if len(miss_terms) > 0:
-            #print(miss_terms)
             miss_terms.drop_duplicates(inplace=True)
+            #print(miss_terms)
 
     def find_missing_terms(self, df, norm_table, error_table, table_name):
         uni_cond = list(set(norm_table["Comorbid_Name"]))
         if len(df.columns) < len(uni_cond):  # file was not included in submission, code below will error
             return []
         for curr_cond in uni_cond:
+            if curr_cond in ["Autoimmune_Disorder_Description_Or_ICD10_codes", "Cancer_Description_Or_ICD10_codes", 
+                             "Viral_Infection_ICD10_codes_Or_Agents"]:
+                continue    #should not exist, already have Autoimmune_Disorder in list
             filt_table = df[[i for i in df.columns if curr_cond in i]]
             try:
                 filt_table.drop(curr_cond, axis=1, inplace=True)
@@ -1159,7 +1174,10 @@ class Submission_Object:
             if filt_table.shape[1] != 1:
                 print("error")
             else:
-                filt_table[filt_table.columns[0]] = [i.lower() for i in filt_table[filt_table.columns[0]]]
+                try:
+                    filt_table[filt_table.columns[0]] = [i.lower() for i in filt_table[filt_table.columns[0]]]
+                except Exception as e:
+                    print(e)
                 x = filt_table.merge(norm_table, left_on=filt_table.columns[0],
                                      right_on="Orgional_Description_Or_ICD10_codes", how="left", indicator=True)
                 x = x.query("_merge == 'left_only'")

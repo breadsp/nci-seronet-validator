@@ -11,13 +11,13 @@ import db_loader_v4
 from connect_to_sql_db import connect_to_sql_db
 from File_Submission_Object_v2 import Submission_Object
 import Validation_Rules_v2 as vald_rules
-#############################################################################################
+#########################################################################################hhh####
 #  import templates abd CBC codes directly from box
 #  connect to S3 client and return handles for future use
 start_time = time.time()
 print("## Running Set Up Functions")
 file_sep, s3_client, s3_resource, Support_Files, validation_date, box_dir = set_up_function()
-#  study_type = "Refrence_Pannel"
+#study_type = "Refrence_Pannel"
 study_type = "Vaccine_Response"
 
 template_df, dbname = get_template_data(pd, box_dir, file_sep, study_type)
@@ -33,7 +33,7 @@ def Data_Validation_Main(study_type):
     ignore_validation_list = ["submission.csv", "assay.csv", "assay_target.csv", "baseline_visit_date.csv"]
     check_BSI_tables = False
     make_rec_report = False
-    upload_ref_data = False
+    upload_ref_data = True
     bucket = "nci-cbiit-seronet-submissions-passed"
 ##############################################################################################
     start_time = time.time()
@@ -44,6 +44,7 @@ def Data_Validation_Main(study_type):
         #  db_loader_ref_pannels.write_panel_to_db(sql_tuple, s3_client, bucket)
         db_loader_ref_pannels.write_requests_to_db(sql_tuple, s3_client, bucket)
         db_loader_ref_pannels.make_manifests(sql_tuple, s3_client, s3_resource, bucket)
+        return
 
     if make_rec_report is True:
         generate_rec_report(sql_tuple, s3_client, bucket)
@@ -61,7 +62,7 @@ def Data_Validation_Main(study_type):
                                                      update_CDC_tables=False)
     elif study_type == "Vaccine_Response":
         sql_table_dict = db_loader_v4.Db_loader_main("Vaccine Response Submissions", sql_tuple, validation_date,
-                                                     Update_Assay_Data=False, Update_Study_Design=False, Update_BSI_Tables=False)
+                                                     Update_Assay_Data=False, Update_Study_Design=True, Update_BSI_Tables=False)
 #############################################################################################
 # compares S3 destination to S3-Passed and S3-Failed to get list of submissions to work
     try:
@@ -71,7 +72,9 @@ def Data_Validation_Main(study_type):
 # pulls the all assay data directly from box
         start_time = time.time()
         assay_data, assay_target, all_qc_data, converion_file = get_box_data_v2.get_assay_data("CBC_Data")
-        study_design = get_box_data_v2.get_study_design()
+        study_design = pd.read_sql(("Select * from Study_Design"), sql_tuple[1])
+        study_design.drop("Cohort_Index", axis=1, inplace=True)
+        #get_box_data_v2.get_study_design()
 
         print("\nLoading Assay Data took %.2f seconds" % (time.time()-start_time))
 ############################################################################################
@@ -141,7 +144,8 @@ def Data_Validation_Main(study_type):
                                                                      Support_Files, study_type)
                     if study_name == "Accrual_Reports":
                         print("##  Submission is an Accrual Report##")
-                    if study_name != study_type:
+                        move_accrual_data(s3_client, bucket, curr_file)
+                    elif study_name != study_type:
                         print(f"##  Submission not in {study_type}, correct and rerun ##")
                         continue
                     col_err_count = current_sub_object.check_col_errors(file_sep, curr_file)
@@ -150,6 +154,7 @@ def Data_Validation_Main(study_type):
                         #continue
                     current_sub_object = zero_pad_ids(current_sub_object)
                     current_sub_object.get_all_unique_ids(re)
+                    current_sub_object.rec_file_names = list(current_sub_object.Data_Object_Table.keys())
                     current_sub_object.populate_missing_keys(sql_tuple)
                     data_table = current_sub_object.Data_Object_Table
                     empty_list = []
@@ -200,7 +205,8 @@ def Data_Validation_Main(study_type):
                             current_sub_object.Data_Object_Table[file_name]['Data_Table'].drop_duplicates(inplace=True)
                             current_sub_object = vald_rules.Validation_Rules(re, datetime, current_sub_object, data_table,
                                                                              file_name, valid_cbc_ids, drop_list, study_type)
-                            current_sub_object.check_dup_visit(pd, data_table, drop_list, file_name)
+                            if file_name in current_sub_object.rec_file_names:
+                                current_sub_object.check_dup_visit(pd, data_table, drop_list, file_name)
                             toc = time.time()
                             print(f"{file_name} took %.2f seconds" % (toc-tic))
                         else:
@@ -215,10 +221,10 @@ def Data_Validation_Main(study_type):
                     current_sub_object.compare_visits("followup")
                     vald_rules.check_comorbid_hist(pd, sql_tuple, current_sub_object)
                     vald_rules.check_vacc_hist(pd, sql_tuple, current_sub_object)
-                    current_sub_object.check_comorbid_dict(pd, sql_tuple[1])
+                    current_sub_object.check_comorbid_dict(pd, sql_tuple[2])
                 elif study_type == "Refrence_Pannel":
-                    vald_rules.compare_SARS_tests(current_sub_object, pd, sql_tuple[1])
-                vald_rules.check_shipping(current_sub_object)
+                    vald_rules.compare_SARS_tests(current_sub_object, pd, sql_tuple[2])
+                vald_rules.check_shipping(current_sub_object, pd, sql_tuple[2])
                 try:
                     dup_visits = current_sub_object.dup_visits
                     if len(dup_visits) > 0:
@@ -264,6 +270,14 @@ def close_connections(file_name, conn_tuple):
     conn_tuple[2].close()    # conn
     conn_tuple[1].dispose()  # engine
 
+
+def move_accrual_data(s3, bucketname, path):
+    for root,dirs,files in os.walk(path):
+        for file in files:
+            new_key = root.replace("C:\Seronet_Data_Validation\Files_To_Validate", "Monthly_Accrual_Reports")
+            new_key = new_key.replace( os.path.sep, "/")
+            s3.upload_file(os.path.join(root, file), bucketname, new_key + "/" + file)
+    
 
 #def check_bio_repo_tables(s3_client, s3_resource, study_type):
 #    print("\n## Checking Latest BSI report that was uploaded to S3 ##")
