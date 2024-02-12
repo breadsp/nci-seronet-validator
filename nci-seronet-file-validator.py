@@ -5,6 +5,7 @@ import mysql.connector
 import datetime
 import dateutil.tz
 import difflib
+import json
 #from seronetdBUtilities import *
 from seronetSnsMessagePublisher import sns_publisher
 import csv
@@ -50,7 +51,7 @@ def lambda_handler(event, context):
             conn.close()
             return {}
 #####################################################################################################################
-        column_names_list = [];
+        column_names_list = []
         for col_name in desc:
             column_names_list.append(col_name[0])  # converts tubple names in list of names
 
@@ -59,11 +60,12 @@ def lambda_handler(event, context):
         file_location_index = column_names_list.index('file_location')
         file_index = 1
         display_output = True
+        validated_file_result = {}
 #####################################################################################################################
         for row_data in rows:
             try:
-                full_name_list = [];
-                error_files = [];                   # sets an empty file list incase file is not a zip
+                full_name_list = []
+                error_files = []                    # sets an empty file list incase file is not a zip
                 validation_status_list = []         # file status for each file with in the submission
                 validation_file_location_list = []  # location of each file with in the submission
                 current_row = list(row_data)        # Current row function is interating on
@@ -135,7 +137,7 @@ def lambda_handler(event, context):
                                    x == current_name]  # checks for duplicate file name entries
                         if len(indices) > 1:
                             submission_error_list.append([current_name, "All Columns", "Filename was found " + str(
-                                len(indices)) + " times in submission, Can not process multiple copies"]);
+                                len(indices)) + " times in submission, Can not process multiple copies"])
                         wrong_count = len(current_name)
                         for valid in list_of_valid_file_names:
                             sequence = difflib.SequenceMatcher(isjunk=None, a=current_name, b=valid).ratio()
@@ -213,13 +215,12 @@ def lambda_handler(event, context):
                     new_key = CBC_submission_name + '/' + CBC_submission_date + '/' + sub_folder + "/" + zip_file_name
                     move_submit_file_to_subfolder(Validation_Type, s3_client, bucket_name, org_key_name, new_key)
                     file_location = bucket_name + "/" + new_key
-    
+                    validated_file_result[file_location] = batch_validation_status
                     submission_index = write_submission_table(conn, sql_connect,org_file_id,file_location,
                                                               batch_validation_status, submit_intent, result_location)
 ################################################################################################################
                 error_files = [i for i in error_files if i in org_file_list]            #only files that were in orgional submission
                 full_name_list = [i for i in full_name_list if i in org_file_list]      #only files that were in orgional submission
-                
                 validation_status_list, validation_file_location_list = update_validation_status(error_files,
                                                                                              'FILE_VALIDATION_FAILURE',
                                                                                              folder_name, Unzipped_key,
@@ -241,7 +242,7 @@ def lambda_handler(event, context):
                                                                                                  Validation_Type)
                 if display_output:
                     if error_value == 0:
-                        full_name_list = error_files + full_name_list;
+                        full_name_list = error_files + full_name_list
                         file_status = "FILE_Processed"
                         if submission_missing == True:
                             full_name_list.append("Submission Missing")
@@ -255,8 +256,10 @@ def lambda_handler(event, context):
                         file_status = "FILE_Processed"
 
                     #use these two values to control whether or not send email or slack message
-                    send_slack="yes"
-                    send_email="yes"
+                    #send_slack="yes"
+                    #send_email="yes"
+                    send_slack = "no"
+                    send_email = "no"
                     result = {'Error_Message': meta_error_msg, 'org_file_id': str(org_file_id),
                               'file_status': 'FILE_Processed',
                               'validation_file_location_list': validation_file_location_list,
@@ -269,6 +272,13 @@ def lambda_handler(event, context):
                 display_error_line(err)
                 print("An Error occured during the processing of " + zip_file_name)
         conn.commit()
+        if len(validated_file_result) > 0:
+            sns = boto3.client('sns')
+            message = json.dumps(validated_file_result)
+            TopicArn_check_submissions = ssm.get_parameter(Name="TopicArn_check_submissions", WithDecryption=True).get("Parameter").get("Value")
+            response = sns.publish(TopicArn=TopicArn_check_submissions, Message=message) #trigger the check submission lambda function
+        else:
+            print("## No data pass the file validation")
 ###################################################################################################################
     except Exception as e:
         display_error_line(e)
@@ -313,7 +323,7 @@ def check_if_zip(s3_resource,s3_client,bucket_name,key_name):
         buffer = BytesIO(zip_obj.get()["Body"].read())                  #creates a temp storage for file
         if(str(key_name).endswith('.zip')):                                       #Zip Extension was found
             z = zipfile.ZipFile(buffer)                                     #unzips the contents into temp storage
-            error_value = 0;
+            error_value = 0
             meta_error_msg = "File was sucessfully unzipped"
         else:
             meta_error_msg = "Submitted file is NOT a valid Zip file, Unable to Process Submission"
@@ -324,7 +334,7 @@ def check_if_zip(s3_resource,s3_client,bucket_name,key_name):
     except Exception as e:
         print(e)
         meta_error_msg = "Zip file was found, but not able to open. Unable to Process Submission"
-        error_value = 1;
+        error_value = 1
     return error_value,meta_error_msg,z
 def get_submission_metadata(s3_client,folder_name,Unzipped_key,full_name_list,valid_submission_intent_list):
     submitting_center = []
@@ -440,7 +450,7 @@ def update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,ful
 def move_submit_file_to_subfolder(Validation_Type,s3_client,bucket_name,org_key_name,new_key):
     if Validation_Type == DB_MODE:
         s3_client.copy_object(Bucket=bucket_name, Key=new_key,CopySource={'Bucket':bucket_name, 'Key':org_key_name})
-        s3_client.delete_object(Bucket=bucket_name, Key=org_key_name)           # Delete original object
+        #s3_client.delete_object(Bucket=bucket_name, Key=org_key_name)           # Delete original object
 def display_error_line(ex):
     trace = []
     tb = ex.__traceback__
@@ -448,3 +458,9 @@ def display_error_line(ex):
         trace.append({"filename": tb.tb_frame.f_code.co_filename,"name": tb.tb_frame.f_code.co_name,"lineno": tb.tb_lineno})
         tb = tb.tb_next
     print(str({'type': type(ex).__name__,'message': str(ex),'trace': trace}))
+
+if __name__ == '__main__':
+    event = {"Records": []}
+    
+    context = ""
+    lambda_handler(event, context)
