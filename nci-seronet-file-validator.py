@@ -448,7 +448,7 @@ def update_jobs_table_write_to_slack(sql_connect,Validation_Type,org_file_id,ful
 def move_submit_file_to_subfolder(Validation_Type,s3_client,bucket_name,org_key_name,new_key):
     if Validation_Type == DB_MODE:
         s3_client.copy_object(Bucket=bucket_name, Key=new_key,CopySource={'Bucket':bucket_name, 'Key':org_key_name})
-        #s3_client.delete_object(Bucket=bucket_name, Key=org_key_name)           # Delete original object
+        s3_client.delete_object(Bucket=bucket_name, Key=org_key_name)           # Delete original object
 def display_error_line(ex):
     trace = []
     tb = ex.__traceback__
