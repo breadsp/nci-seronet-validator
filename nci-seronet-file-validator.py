@@ -256,10 +256,8 @@ def lambda_handler(event, context):
                         file_status = "FILE_Processed"
 
                     #use these two values to control whether or not send email or slack message
-                    #send_slack="yes"
-                    #send_email="yes"
-                    send_slack = "no"
-                    send_email = "no"
+                    send_slack="yes"
+                    send_email="yes"
                     result = {'Error_Message': meta_error_msg, 'org_file_id': str(org_file_id),
                               'file_status': 'FILE_Processed',
                               'validation_file_location_list': validation_file_location_list,
