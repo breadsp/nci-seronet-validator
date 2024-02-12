@@ -456,9 +456,3 @@ def display_error_line(ex):
         trace.append({"filename": tb.tb_frame.f_code.co_filename,"name": tb.tb_frame.f_code.co_name,"lineno": tb.tb_lineno})
         tb = tb.tb_next
     print(str({'type': type(ex).__name__,'message': str(ex),'trace': trace}))
-
-if __name__ == '__main__':
-    event = {"Records": []}
-    
-    context = ""
-    lambda_handler(event, context)
