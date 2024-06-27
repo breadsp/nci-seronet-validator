@@ -7,6 +7,7 @@ Created on Fri Nov  4 09:21:43 2022
 
 from import_loader_v2 import pd, sd, np
 from connect_to_sql_db import connect_to_sql_db
+import sys
 import os
 
 def Dictionary_Updater():
@@ -14,12 +15,15 @@ def Dictionary_Updater():
     file_sep = os.path.sep
      
     sql_column_df, engine, conn = connect_to_sql_db(pd, sd, "seronetdb-Vaccine_Response")
-    #box_dir = "C:" + file_sep + "Users" + file_sep + os.getlogin() + file_sep + "Box"
-    #normal_dir = box_dir + file_sep + "CBC Data Submission Documents" + file_sep + "Dictionary_Files_for_Normalized_Terms"
-    normal_dir = r"C:\Dictionary_Files"
+    box_dir = "C:" + file_sep + "Users" + file_sep + os.getlogin() + file_sep + "Box"
+    normal_dir = box_dir + file_sep + "CBC Data Submission Documents" + file_sep + "Dictionary_Files_for_Normalized_Terms"
+    #normal_dir = r"C:\Dictionary_Files"
+    #file_path = normal_dir + file_sep + "Treatment_Names_harmonized.csv" 
+    #file_path = normal_dir + file_sep + "Cancer_Cohort_harmonized.csv" 
     file_path = normal_dir + file_sep + "Comorbidity_Names_harmonized.csv"
+    
     try:
-        norm_table = pd.read_csv(file_path)
+        norm_table = pd.read_csv(file_path, encoding='windows-1252', keep_default_na=False)
 
         if "Comorbidity" in file_path:   # Ex: Reported_Comorbidity_Names_Release_2.0_harmonized 17Aug2022
             Normalized_Comorbidities(norm_table, pd, conn, engine)
@@ -75,7 +79,10 @@ def get_to_add(input_data, sql_df, prim_key):
 
 def Normalized_Comorbidities(norm_table, pd, conn, engine):
     table_name = "Normalized_Comorbidity_Dictionary"
+
+    norm_table = norm_table.rename(columns={'Original_Description_Or_ICD10_codes': 'Orgional_Description_Or_ICD10_codes'})
     norm_table = norm_table[['Comorbid_Name', 'Orgional_Description_Or_ICD10_codes', 'Normalized_Description']]
+    
     norm_dict = pd.read_sql(("SELECT * FROM Normalized_Comorbidity_Dictionary;"), conn)
     norm_table = clean_table(norm_table)
     norm_dict = clean_table(norm_dict)
@@ -90,7 +97,7 @@ def Normalized_Comorbidities(norm_table, pd, conn, engine):
         return add_count, update_count, table_name
  
     norm_dict = pd.read_sql(("SELECT * FROM Normalized_Comorbidity_Dictionary;"), conn)                          #normalized dictoinary
-    norm_db = pd.read_sql(("SELECT * FROM `seronetdb-Vaccine_Response`.Normalized_Comorbidity_Names;"), conn)    #harmonized output table
+    norm_db = pd.read_sql(("SELECT * FROM Normalized_Comorbidity_Names;"), conn)    #harmonized output table
 
     org_names = pd.read_sql(("SELECT * FROM Comorbidities_Names;"), conn)           #orional Names of the Comorbidities
     org_cond = pd.read_sql(("SELECT * FROM Participant_Comorbidities;"), conn)      #yes/no/ condition status flag
@@ -101,10 +108,15 @@ def Normalized_Comorbidities(norm_table, pd, conn, engine):
     norm_dict.fillna("No Data", inplace=True)
     org_names.fillna("No Data", inplace=True)
     comorbid_cols = org_cond.columns.tolist()
+    error_list = pd.DataFrame(columns=("Comorbidity", "Disease_Name"))
+    
+    #cond_stat = pd.read_sql(("SELECT * FROM Participant_Comorbidities; "), conn)
     for curr_cond in comorbid_cols:
         col_name = [i for i in org_names.columns if curr_cond in i]
         x = norm_dict.query("Comorbid_Name in @curr_cond")
-
+        
+        new_term_df = []
+        print(f"Working on {curr_cond}")
         if len(x) > 0:
             try:
                 x["Orgional_Description_Or_ICD10_codes"] = x["Orgional_Description_Or_ICD10_codes"].str.lower()
@@ -113,22 +125,68 @@ def Normalized_Comorbidities(norm_table, pd, conn, engine):
                 org_names[col_name[0]] = org_names[col_name[0]].str.replace("crohns", "crohn's")
                 org_names[col_name[0]] = org_names[col_name[0]].str.replace("hashimotos", "hashimoto's")
 
+                status = pd.read_sql((f"select Visit_Info_ID, {curr_cond} from Participant_Comorbidities"),conn)
+
                 for index in org_names.index:
+                    visit_id = org_names['Visit_Info_ID'][index]
+                    y = status.query(f"Visit_Info_ID == '{visit_id}'")
+                    
+                    y["visit"] = [i[-3:] for i in y["Visit_Info_ID"]]
+                    good_visit = y.query(f"{curr_cond} in ['Yes', 'No', 'New Condition'] or ({curr_cond} in ['Not Reported', 'Unknown'] and visit == 'B01')")
+                    if len(good_visit) == 0:
+                        continue
+
+
+                    
                     split_names = org_names[col_name[0]][index].split("|")
                     split_names = [i.strip() for i in split_names]
+                    split_names = [i.replace('no data', "not reported") for i in split_names]
+
                     norm_term = x.query("Orgional_Description_Or_ICD10_codes in @split_names")["Normalized_Description"]
                     norm_term = list(set(norm_term))
                     norm_term.sort()
+                    
+                    #if norm_term == ["Condition Not Described"]:
+                    #    norm_term = [curr_cond + ", Type Unspecified"]
                     if len(norm_term) == 0:
                         print(f"{split_names} was not found in {curr_cond}")
+                        err_df = pd.DataFrame({"Comorbidity":[curr_cond]*len(split_names), "Disease_Name":split_names})
+                        error_list = pd.concat([error_list, err_df])
                     normalized_df[curr_cond + "_Description_Normalized"][index] = " | ".join(norm_term)
+
+                    y = y.merge(org_names[["Visit_Info_ID", col_name[0]]], how="left")
+                    y["Normalized_Term"] = " | ".join(norm_term)
+                    if len(new_term_df) == 0:
+                        new_term_df = y
+                    else:
+                        new_term_df = pd.concat([new_term_df, y])
             except Exception as e:
                 print(e)
-
-    normalized_df.replace("No Data", np.nan, inplace=True)
+        error_list.drop_duplicates(inplace=True)
+        if len(new_term_df) > 0:
+            new_term_df.reset_index(inplace=True, drop=True)
+            new_term_df["Reported_Value"] = ""
+            z = new_term_df.query(f"{curr_cond} in ['No','no']")
+            new_term_df["Reported_Value"][z.index] = "Participant does not have Condition"
+            
+            z = new_term_df.query(f"{curr_cond} in ['Not Reported','not reported']")
+            new_term_df["Reported_Value"][z.index] = "Participant did not answer question, Condition status not available"
+            
+            z = new_term_df.query(f"{curr_cond} in ['Unknown','Unknown']")
+            new_term_df["Reported_Value"][z.index] = "Participant is unsure if condition exists (answered Unknown Status)"
+            
+            z = new_term_df.query(f"{curr_cond} in ['Yes', 'yes'] and {col_name[0]} in ['condition not described', 'not reported', 'Condition Not Described', 'Not Reported']")
+            new_term_df["Reported_Value"][z.index] = f"{curr_cond}, Type Unspecified"
+            
+            z = new_term_df.query(f"{curr_cond} in ['Yes', 'yes'] and {col_name[0]} not in ['condition not described', 'not reported', 'Condition Not Described', 'Not Reported']")
+            new_term_df["Reported_Value"][z.index] = z["Normalized_Term"]
+            
+            print("x")
+        
+    normalized_df.replace("Data Need To Harmonize", np.nan, inplace=True)
     normalized_df.rename(columns={"Viral_Infection_Description_Normalized": "Viral_Infection_Normalized"}, inplace=True)
     normalized_df.rename(columns={"Bacterial_Infection_Description_Normalized": "Bacterial_Infection_Normalized"}, inplace=True)
-    normalized_df.fillna('Participant Does Not Have', inplace=True)
+    #normalized_df.fillna('Participant Does Not Have', inplace=True)
 
     new_data, update_data = get_to_add(normalized_df, norm_db, ['Visit_Info_ID'])
     col_names = ", ".join(["`" + i + "`" for i in new_data.columns])
@@ -182,17 +240,36 @@ def Normalized_Cancer(norm_table, pd, conn, sql_connect):
     if add_count == -1 or update_count == -1:   #error updating dictionary, do not make tables
       return add_count, update_count, table_name
 
-    org_names = pd.read_sql(("SELECT Visit_Info_ID, Cancer FROM Cancer_Cohort;"), conn)
+    org_names = pd.read_sql(("SELECT Visit_Info_ID, Cancer_Description_Or_ICD10_codes FROM Comorbidities_Names;"), conn)
+    has_cancer = pd.read_sql(("SELECT Visit_Info_ID, Cancer FROM Participant_Comorbidities;"), conn)
+    org_names = org_names.merge(has_cancer)
+    org_names.fillna("Not Reported", inplace=True)
+
     norm_dict = pd.read_sql(("SELECT * FROM Normalized_Cancer_Dictionary;"), conn)
     curr_norm = pd.read_sql(("SELECT * FROM Normalized_Cancer_Names_v2"), conn)
 
-    org_names.rename(columns={"Cancer": "Original Cancer Name"}, inplace=True)
+    org_names.rename(columns={"Cancer_Description_Or_ICD10_codes": "Original Cancer Name"}, inplace=True)
     norm_dict.rename(columns={"Cancer": "Original Cancer Name"}, inplace=True)
     
     merge_data = org_names.merge(norm_dict, how="left")
+    merge_data["Cancer_Type"] = ""
+    x = merge_data.query("Cancer == 'No'")
+    merge_data.loc[x.index, "Cancer_Type"] = 'Does not have Cancer'
+    x = merge_data.query("Cancer == 'Yes' and `Harmonized Cancer Name` == 'Not Reported'")
+    merge_data.loc[x.index, "Cancer_Type"] = 'Unknown Cancer Type'
+    x = merge_data.query("`Harmonized Cancer Name` != `Harmonized Cancer Name`")
+    merge_data.loc[x.index, "Cancer_Type"] = 'Unknown Cancer Type'
+    x = merge_data.query("Cancer == 'Not Reported' and `Harmonized Cancer Name` == 'Not Reported'")
+    merge_data.loc[x.index, "Cancer_Type"] = 'Not Reported'
+
+    x = merge_data.query("Cancer_Type == ''")
+    x["Cancer_Count"] = ["Number of Cancers: " + str(len(i.split("|"))) for i in x["Harmonized Cancer Name"]]
+    merge_data.loc[x.index, "Cancer_Type"] = x["Cancer_Count"]
+
+    merge_data.drop("Cancer", axis=1, inplace=True)
     new_data, update_data = get_to_add(merge_data, curr_norm, ["Visit_Info_ID", "Original Cancer Name"])
     
-    x = new_data.query("`{0}` != `{0}`".format("Harmonized Cancer Name"))
+    x = merge_data.query("`{0}` != `{0}`".format("Harmonized Cancer Name"))
     if len(x) > 0:
         print(f"There are {len(x)} new terms missing")
 
@@ -215,7 +292,10 @@ def add_new_rows(conn, sql_connect, new_data, table_name, col_names):
 
             sql_query = (f"INSERT INTO {table_name} ({col_names}) VALUES ({curr_data})")
             sql_connect.execute(sql_query)
+        except sd.exc.IntegrityError:
+            continue  #record already exists
         except Exception as e:
+            print ("Unexpected error:", sys.exc_info()[0])
             print(col_names)
             print(curr_data)
             display_error_line(e)
@@ -251,6 +331,8 @@ def update_tables(conn, sql_connect, primary_keys, update_table, sql_table):
             update_str = update_str.replace('"nan"', "NULL")
 
             update_str = update_str.replace('"NULL"',"NULL")
+            
+            update_str = update_str.replace('MaligNULLt', 'Malignant')
 
             sql_query = (f"UPDATE {sql_table} set {update_str} where {key_str %tuple(primary_value)}")
             sql_connect.execute(sql_query)

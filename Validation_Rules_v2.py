@@ -1,6 +1,6 @@
 bio_type_list = ["Serum", "Plasma", "EDTA Plasma", "PBMC", "Blood", "Dried Blood Spot", "Saliva",
                  "Nasal swab", "Bronchoalveolar lavage", "Sputum", "Stool", "Urine", "Breast Milk",
-                 "Cerebrospinal Fluid", "Rectal Swab", "Vaginal Swab", "Buccal Swab", "Not Reported", "No Specimens Collected"]
+                 "Cerebrospinal Fluid", "Rectal Swab", "Vaginal Swab", "Buccal Swab", "Not Reported", "No Specimens Collected", "DNA"]
 
 state_list = ['AK', 'AL', 'AR', 'AZ', 'CA', 'CO', 'CT', 'DC', 'DE', 'FL', 'GA', 'HI', 'IA', 'ID', 'IL', 'IN', 'KS',
               'KY', 'LA', 'MA', 'MD', 'ME', 'MI', 'MN', 'MO', 'MS', 'MT', 'NC', 'ND', 'NE', 'NH', 'NJ', 'NM', 'NV',
@@ -195,9 +195,10 @@ def check_all_sheet_rules(header_name, current_object, file_name, data_table, Ru
         pass
     elif "Cohort" in header_name:
         current_object.check_if_string(file_name, data_table, header_name, "None", "None", [])
-        current_object.check_in_meta(file_name, data_table, header_name, "study_design.csv", "Cohort_Name")
+        #current_object.check_in_meta(file_name, data_table, header_name, "study_design.csv", "Cohort_Name")
     elif header_name in ["Visit", "Visit_Number"]:
         list_values = ["Baseline(1)"] + list(range(1, 50)) + [z+i for i in ["A", "B", "C" ,"D"] for z in ["0", "1", "2", "3", "4"]]
+        list_values = list_values + [-1]
         current_object.check_in_list(file_name, data_table, header_name, "None", "None", list_values)
     else:
         return Required_column, False
@@ -416,7 +417,7 @@ def check_base_line_demo(header_name, current_object, data_table, file_name, dat
     if Rule_Found is True:
         pass
     elif "Visit_Date_Duration_From_Index" in header_name:
-        current_object.check_if_number(file_name, data_table, header_name, 'None', "None", ["Unknown"], -500, 1000, "float")
+        current_object.check_if_number(file_name, data_table, header_name, 'None', "None", ["Unknown"], -500, 1500, "float")
     elif header_name in ["Weight"]:
         current_object.check_if_number(file_name, data_table, header_name, 'None', "None",
                                        ["Not Reported", "N/A"], 1, 1000, "float")  # heaviest weight 1000 lbs (can adjust)
@@ -832,11 +833,17 @@ def check_shipping(current_object, pd, conn):
         aliquot_table = aliquot_table.drop_duplicates()
 
     if ("shipping_manifest.csv" in file_list):
-        shipping_table = current_object.Data_Object_Table["shipping_manifest.csv"]["Data_Table"]
-        shipping_table["Volume"] = [i/1000 if i >= 1000 else i for i in shipping_table["Volume"].tolist()]
+        try:
+            shipping_table = current_object.Data_Object_Table["shipping_manifest.csv"]["Data_Table"]
+            shipping_table["Volume"] = [i/1000 if i >= 1000 else i for i in shipping_table["Volume"].tolist()]
+        except Exception as e:
+            print(e)
         compare_tables = shipping_table.merge(aliquot_table, left_on=["Current Label"], right_on=["Aliquot_ID"], indicator=True, how="outer")
         
         match_ids = compare_tables.query("_merge  in ['both']")
+        match_ids["Volume"] = [round(i,2) for i in match_ids["Volume"]] 
+        match_ids["Aliquot_Volume"] = [round(i,2) for i in match_ids["Aliquot_Volume"]]
+        
         z = match_ids.query("Volume !=  Aliquot_Volume")
 
         compare_tables = compare_tables.query("_merge in ['left_only']")
@@ -851,9 +858,12 @@ def check_vaccine_status(header_name, current_object, data_table, file_name, Rul
     #has_vaccine = ["Dose 1 of 1", "Dose 1 of 2", "Dose 2 of 2", "Dose 3", "Dose 4"] + ["Booster " + str(i) for i in range(1, 7)]
     no_vaccine = ["No vaccination event reported", "Unvaccinated"]
     
-    has_vaccine = ['Dose 1 of 1', 'Dose 1 of 2', 'Dose 2 of 2', 'Dose 2', 'Dose 3', 'Dose 3:Bivalent', 'Dose 4', 'Dose 4:Bivalent']
+    has_vaccine = ['Dose 1 of 1', 'Dose 1 of 2', 'Dose 2 of 2', 'Dose 2', 'Dose 3', 'Dose 4']
     has_vaccine =  has_vaccine + ["Booster " + str(i) for i in list(range(1,10))]
     has_vaccine =  has_vaccine + ["Booster " + str(i) + ":Bivalent" for i in list(range(1,10))]
+    has_vaccine =  has_vaccine + ["Booster " + str(i) + ":Monovalent XBB.1.5" for i in list(range(1,10))]
+    has_vaccine =  has_vaccine + ["Dose " + str(i) + ":Bivalent" for i in list(range(1,10))]
+    has_vaccine =  has_vaccine + ["Dose " + str(i) + ":Monovalent XBB.1.5" for i in list(range(1,10))]
 
     if Rule_Found is True:
         pass
@@ -930,7 +940,7 @@ def check_covid_hist(header_name, current_object, data_table, file_name, Rule_Fo
                            "Acute Liver injury", "Acute Cardiac Injury (Heart injury)", "Secondary Infection",
                            "Acute Kidney Injury", "Septic Shock", "Disseminated Intravascular Coagulation (DIC)",
                            "Blood Clots", "Chronic Fatigue", "Rhabdomyolysis", "Multisystem Inflammatory Syndrome in Children",
-                           "No complications reported", "N/A"]
+                           "No complications reported", "N/A", "COVID complications reported, symptoms not specified"]
         elif header_name in ["Long_COVID_symptoms"]:
             list_values = ["Cough", "Chest Pain", "Difficulty walking distances", "Muscle weakness", "Mental confusion",
                            "Numbness or Tingling", "Palpitations", "Shortness of breath (more than before illness)",

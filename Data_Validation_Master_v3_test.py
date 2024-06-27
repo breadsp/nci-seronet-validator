@@ -17,7 +17,7 @@ import Validation_Rules_v2 as vald_rules
 start_time = time.time()
 print("## Running Set Up Functions")
 file_sep, s3_client, s3_resource, Support_Files, validation_date, box_dir = set_up_function()
-#study_type = "Refrence_Pannel"
+#study_type = "Reference_Panel"
 study_type = "Vaccine_Response"
 
 template_df, dbname = get_template_data(pd, box_dir, file_sep, study_type)
@@ -37,11 +37,21 @@ def Data_Validation_Main(study_type):
     bucket = "nci-cbiit-seronet-submissions-passed"
 ##############################################################################################
     start_time = time.time()
-    sql_tuple = connect_to_sql_db(pd, sd, dbname)
     print("Connection to SQL database took %.2f seconds" % (time.time() - start_time))
+    if study_type == "Vaccine_Response":
+        sql_tuple = connect_to_sql_db(pd, sd, "seronetdb-Vaccine_Response")
+    elif study_type == "Reference_Panel":
+        sql_tuple = connect_to_sql_db(pd, sd, "seronetdb-Validated")
+        
+    #new_cohort = pd.read_excel(r"C:\Users\breadsp2\Documents\update_cohort_table.xlsx")
+    #new_cohort["Primary_Cohort"] = new_cohort["Primary_Cohort"].apply(str)
+    #sql_data = pd.read_sql(("SELECT * FROM `seronetdb-Vaccine_Response_v2`.Participant_Cohort"),sql_tuple[2])
+    #new_cohort = new_cohort.merge(sql_data, how="left", indicator = True)
+    #new_cohort = new_cohort.query("_merge not in ['both']")
+    #new_cohort.drop("_merge", axis=1, inplace=True)
 
-    if upload_ref_data is True and study_type == "Refrence_Pannel":
-        #  db_loader_ref_pannels.write_panel_to_db(sql_tuple, s3_client, bucket)
+    if upload_ref_data is True and study_type == "Reference_Panel":
+        #db_loader_ref_pannels.write_panel_to_db(sql_tuple, s3_client, bucket)
         db_loader_ref_pannels.write_requests_to_db(sql_tuple, s3_client, bucket)
         db_loader_ref_pannels.make_manifests(sql_tuple, s3_client, s3_resource, bucket)
         return
@@ -62,7 +72,7 @@ def Data_Validation_Main(study_type):
                                                      update_CDC_tables=False)
     elif study_type == "Vaccine_Response":
         sql_table_dict = db_loader_v4.Db_loader_main("Vaccine Response Submissions", sql_tuple, validation_date,
-                                                     Update_Assay_Data=False, Update_Study_Design=True, Update_BSI_Tables=False)
+                                                     Update_Assay_Data=False, Update_Study_Design=False, Update_BSI_Tables=False)
 #############################################################################################
 # compares S3 destination to S3-Passed and S3-Failed to get list of submissions to work
     try:
@@ -72,8 +82,8 @@ def Data_Validation_Main(study_type):
 # pulls the all assay data directly from box
         start_time = time.time()
         assay_data, assay_target, all_qc_data, converion_file = get_box_data_v2.get_assay_data("CBC_Data")
-        study_design = pd.read_sql(("Select * from Study_Design"), sql_tuple[1])
-        study_design.drop("Cohort_Index", axis=1, inplace=True)
+   #     study_design = pd.read_sql(("Select * from Study_Design"), sql_tuple[1])
+   #     study_design.drop("Cohort_Index", axis=1, inplace=True)
         #get_box_data_v2.get_study_design()
 
         print("\nLoading Assay Data took %.2f seconds" % (time.time()-start_time))
@@ -99,6 +109,7 @@ def Data_Validation_Main(study_type):
             CBC_Folders = get_subfolder(root_dir, "Files_To_Validate")
             CBC_Folders = sort_CBC_list(CBC_Folders)
 #############################################################################################
+        #bio_data = pd.read_sql(("select Biospecimen_ID, Biospecimen_Type from Biospecimen"), sql_tuple[2])
 
         for iterT in CBC_Folders:
             file_list = listdirs(iterT, [])
@@ -147,11 +158,11 @@ def Data_Validation_Main(study_type):
                         move_accrual_data(s3_client, bucket, curr_file)
                     elif study_name != study_type:
                         print(f"##  Submission not in {study_type}, correct and rerun ##")
-                        continue
+                        #continue
                     col_err_count = current_sub_object.check_col_errors(file_sep, curr_file)
                     if col_err_count > 0:
                         print(colored("Submission has Column Errors, Data Validation NOT Preformed", "red"))
-                        #continue
+                        continue
                     current_sub_object = zero_pad_ids(current_sub_object)
                     current_sub_object.get_all_unique_ids(re)
                     current_sub_object.rec_file_names = list(current_sub_object.Data_Object_Table.keys())
@@ -169,6 +180,7 @@ def Data_Validation_Main(study_type):
                     display_error_line(e)
                     continue
                 try:
+                    current_sub_object.create_visit_table_v2(sql_tuple)
                     current_sub_object.create_visit_table("baseline.csv", study_type)
                     current_sub_object.create_visit_table("follow_up.csv", study_type)
                 except Exception as e:
@@ -177,7 +189,7 @@ def Data_Validation_Main(study_type):
 
                 current_sub_object.update_object(assay_data, "assay.csv")
                 current_sub_object.update_object(assay_target, "assay_target.csv")
-                current_sub_object.update_object(study_design, "study_design.csv")
+                #current_sub_object.update_object(study_design, "study_design.csv")
 
                 data_table = current_sub_object.Data_Object_Table
                 if "baseline_visit_date.csv" in data_table:
@@ -205,8 +217,8 @@ def Data_Validation_Main(study_type):
                             current_sub_object.Data_Object_Table[file_name]['Data_Table'].drop_duplicates(inplace=True)
                             current_sub_object = vald_rules.Validation_Rules(re, datetime, current_sub_object, data_table,
                                                                              file_name, valid_cbc_ids, drop_list, study_type)
-                            if file_name in current_sub_object.rec_file_names:
-                                current_sub_object.check_dup_visit(pd, data_table, drop_list, file_name)
+                            #if file_name in current_sub_object.rec_file_names:
+                            #    current_sub_object.check_dup_visit(pd, data_table, drop_list, file_name)
                             toc = time.time()
                             print(f"{file_name} took %.2f seconds" % (toc-tic))
                         else:

@@ -141,7 +141,8 @@ class Submission_Object:
             else:
                 print("Unknown file extension")
                 Data_Table = pd.DataFrame()
-        except Exception:
+        except Exception as e:
+            print(e)
             Data_Table = pd.DataFrame()
         self.Data_Object_Table[file_name]["Data_Table"].append(Data_Table)
         if file_name not in ["submission.csv"]:
@@ -178,7 +179,8 @@ class Submission_Object:
             curr_table = self.Data_Object_Table[file_name]["Data_Table"][0]
         except Exception as e:
             print(e)
-        curr_table.dropna(axis=0, how="all", thresh=None, subset=None, inplace=True)
+        #curr_table.dropna(axis=0, how="all", thresh=None, subset=None, inplace=True)
+        curr_table.dropna(axis=0, how="all", subset=None, inplace=True)
         curr_table = self.remove_blank_rows(curr_table, "Research_Participant_ID")
         curr_table = self.remove_blank_rows(curr_table, "Biospecimen_ID")
         curr_table = self.remove_blank_rows(curr_table, "Aliquot_ID")
@@ -199,6 +201,16 @@ class Submission_Object:
         if test_str in curr_table.columns:
             curr_table = curr_table.query("{0} not in ['']".format(test_str))
         return curr_table
+
+
+    def create_visit_table_v2(self, sql_tuple):
+        self.Data_Object_Table["visit_info_sql.csv"] = {"Data_Table": []}
+
+        all_visits = pd.read_sql(("SELECT Research_Participant_ID, Visit_Info_ID, Visit_Number, Type_Of_Visit as 'Visit_Type' " +
+                                  "FROM `seronetdb-Vaccine_Response`.Participant_Visit_Info"), sql_tuple[2])
+        all_visits["Visit_Number"] = [i[-2:] if i[-1] in ["A", "B", "C", "D"] else int(i[-2:]) for i in all_visits["Visit_Info_ID"]]
+        self.Data_Object_Table["visit_info_sql.csv"]["Data_Table"] = all_visits.drop_duplicates()
+
 
     def create_visit_table(self, curr_table, study_type):
         if curr_table not in self.Data_Object_Table:
@@ -223,11 +235,12 @@ class Submission_Object:
                         base_line["Visit_Type"] = "Baseline"
                     else:
                         base_line["Visit_Type"] = "Follow_Up"
-                        base_line["Visit_Number"] = [int(i[-2:]) for i in base_line["Visit_Info_ID"]]
+                        base_line["Visit_Number"] = [i[-2:] if i[-1] in ["A", "B", "C", "D"] else int(i[-2:]) for i in base_line["Visit_Info_ID"]]
                     try:
-                        visit_info = visit_info.merge(base_line[["Research_Participant_ID", "Visit_Info_ID",
-                                                                 "Visit_Number", "Visit_Type"]], how="outer")
-                        self.Data_Object_Table["visit_info_sql.csv"]["Data_Table"] = visit_info.drop_duplicates()
+                        visit_info = visit_info.merge(base_line[["Research_Participant_ID", "Visit_Info_ID", "Visit_Number", "Visit_Type"]], how="outer")
+                        org_data = self.Data_Object_Table["visit_info_sql.csv"]["Data_Table"]
+                        all_data = pd.concat([org_data, visit_info])
+                        self.Data_Object_Table["visit_info_sql.csv"]["Data_Table"] = all_data.drop_duplicates()
                     except Exception as e:
                         print(e)
 
@@ -238,6 +251,8 @@ class Submission_Object:
             if (("Batch_ID" in curr_col) or ("Catalog_Number" in curr_col) or ("Lot_Number" in curr_col) or
                (curr_col in ["Visit", "Visit_Number", "Derived_Result", "Equipment_ID", "Instrument_ID",
                              "Other_Comorbidity"])):
+                data_table[curr_col] = [str(i) for i in data_table[curr_col]]
+            elif curr_col.find("ICD10")> 0:
                 data_table[curr_col] = [str(i) for i in data_table[curr_col]]
             else:
                 try:
@@ -285,6 +300,8 @@ class Submission_Object:
         key_cols = [i.replace("Consumable_", "") for i in key_cols]
         key_cols = [i.replace("Equipment_", "") for i in key_cols]
         key_cols = [i.replace("Reagent_", "") for i in key_cols]
+        if "Index" in key_cols:
+            key_cols.remove("Index")
 
         for test_table in self_table:
             if test_table in ["submission.csv"]:
@@ -293,13 +310,13 @@ class Submission_Object:
                 test_logic = [i for i in key_cols if i in self_table[test_table]["Data_Table"].columns]
                 if len(test_logic) > 0:
                     merge_table = self_table[test_table]["Data_Table"]
-                    key_cols = self_table[test_table]["Key_Cols"]
-                    key_cols = [i for i in key_cols if i in merge_table.columns]
-                    merge_table = merge_table[key_cols]
+                    key_cols_2 = list(set(self_table[test_table]["Key_Cols"]))
+                    key_cols_2 = [i for i in key_cols_2 if i in merge_table.columns]
+                    merge_table = merge_table[key_cols_2]
                     merge_table.rename(columns={"Target_Organism": "Assay_Target_Organism"}, inplace=True)
                     curr_table = curr_table.merge(merge_table, how='left')
                     curr_table.drop_duplicates(inplace=True)
-            except Exception as e:
+            except Exception:
                 pass
 #                print(i + " was not found in the schema")
         drop_list = [i for i in curr_table.columns if i not in self_table[file_name]["Column_List"]]
@@ -372,6 +389,10 @@ class Submission_Object:
         header_list = self.Data_Object_Table[file_name]['Data_Table'].columns.tolist()
         check_file = template_data.query("Sheet_Name == @file_name")
         self.Data_Object_Table[file_name]['Data_Table'].columns = header_list
+        
+        x = [i for i in header_list if i.find("Provenance") > 0]
+        self.Data_Object_Table[file_name]['Data_Table'].drop(x, axis=1, inplace=True)
+        header_list = self.Data_Object_Table[file_name]['Data_Table'].columns.tolist()
 
         if len(check_file) == 0:
             return
@@ -393,7 +414,10 @@ class Submission_Object:
             self.Curr_col_errors["CSV_Sheet_Name"] = name_list
             self.Curr_col_errors["Column_Name"] = (in_csv_not_excel + in_excel_not_csv)
             self.Curr_col_errors["Error_Message"] = (csv_errors+excel_errors)
-            self.Column_error_count = self.Column_error_count.append(self.Curr_col_errors)
+            try:
+                self.Column_error_count = pd.concat([self.Column_error_count,self.Curr_col_errors])
+            except Exception as e:
+                print(e)
             self.Curr_col_errors.drop(labels=range(0, len(name_list)), axis=0, inplace=True)
 
 ######################################################################################################
@@ -470,7 +494,9 @@ class Submission_Object:
                 data_table = data_table[data_table[field_name].apply(lambda x: x not in ["N/A"])]
                 if len(data_table) > 0:
                     table_counts = data_table[field_name].value_counts(dropna=False).to_frame()
-                    dup_id_count = table_counts[table_counts[field_name] > 1]
+                    table_counts.reset_index(inplace=True)
+                    dup_id_count = table_counts.query("count > 1")
+                    #dup_id_count = table_counts[table_counts[field_name] > 1]
                     for i in dup_id_count.index:
                         error_msg = "Id is repeated " + str(dup_id_count[field_name][i]) + " times, Multiple repeats are not allowed"
                         self.add_error_values("Error", sheet_name, -3, field_name, i, error_msg)
@@ -559,8 +585,6 @@ class Submission_Object:
                     if "visit_info_sql.csv" in table_names:
                         table_names.remove("visit_info_sql.csv")
                 if len(table_names) > 0:
-                    if "baseline.csv" in table_names:
-                        print("x")
                     self.add_keys_to_tables(table_names, test_qry, pd, conn)
 
 
@@ -1044,9 +1068,13 @@ class Submission_Object:
                 self.update_error_table("Warning", missing_data, sheet_name, header_name, error_msg, True)
 
     def add_error_values(self, msg_type, sheet_name, row_index, col_name, col_value, error_msg):
-        new_row = {"Message_Type": msg_type, "CSV_Sheet_Name": sheet_name, "Row_Index": row_index,
-                   "Column_Name": col_name, "Column_Value": col_value, "Error_Message": error_msg}
-        self.Error_list = self.Error_list.append(new_row, ignore_index=True)
+        new_row = {"Message_Type": [msg_type], "CSV_Sheet_Name": [sheet_name], "Row_Index": [row_index],
+                   "Column_Name": [col_name], "Column_Value": [col_value], "Error_Message": [error_msg]}
+        
+        error_df = pd.DataFrame.from_dict(new_row)
+        self.Error_list  = pd.concat([self.Error_list, error_df], ignore_index=True)
+#        self.Error_list = self.Error_list.append(new_row, ignore_index=True)
+
 
     def update_error_table(self, msg_type, error_data, sheet_name, header_name, error_msg, keep_blank=False):
         try:
@@ -1142,7 +1170,7 @@ class Submission_Object:
             filt_table = norm_table.query("Comorbid_Name == @curr_idx")
             for curr_desc in filt_table["Orgional_Description_Or_ICD10_codes"]:
                 if len(curr_desc.split( "|")) > 1:  #multiple terms
-                    print("x")
+                    print("multile terms found")
 
         
         error_table = pd.DataFrame(columns=["Sheet_Name", "Comorbidity_Catagory", "Comorbidity_Description"])
@@ -1243,6 +1271,7 @@ class Submission_Object:
 
                 check_visit = check_visit.query("_merge not in ['both']")
                 check_visit.drop_duplicates(inplace=True)
+                check_visit = check_visit.query("Visit_Number not in ['-1',-1]")
                 for i in check_visit.index:
                     visit_num = check_visit.loc[i]["Visit_Number"]
                     if visit_num == 1:
@@ -1263,15 +1292,18 @@ class Submission_Object:
         else:
             self.check_validation_folder(os)
         for iterU in uni_name:
-            curr_table = self.Error_list.query("CSV_Sheet_Name == @iterU")
-            curr_name = iterU.replace('.csv', '_Errors.csv')
-            if uni_name in ["Cross_Participant_ID.csv", "Cross_Biospecimen_ID.csv", "submission.csv"]:
-                curr_table = curr_table.sort_index()
-            else:
-                curr_table = curr_table.sort_values('Row_Index')
-            curr_name = curr_name.replace(".xlsx", ".csv")
-            curr_table.to_csv(self.Data_Validation_Path + file_sep + curr_name, index=False)
-            print(colored(iterU + " has " + str(len(curr_table)) + " Errors", 'red'))
+            try:
+                curr_table = self.Error_list.query("CSV_Sheet_Name == @iterU")
+                curr_name = iterU.replace('.csv', '_Errors.csv')
+                if uni_name in ["Cross_Participant_ID.csv", "Cross_Biospecimen_ID.csv", "submission.csv"]:
+                    curr_table = curr_table.sort_index()
+                else:
+                    curr_table = curr_table.sort_values('Row_Index')
+                curr_name = curr_name.replace(".xlsx", ".csv")
+                curr_table.to_csv(self.Data_Validation_Path + file_sep + curr_name, index=False)
+                print(colored(iterU + " has " + str(len(curr_table)) + " Errors", 'red'))
+            except Exception as e:
+                print(e)
 
 ######################################################################################################
     def make_folder(self, os, folder):
