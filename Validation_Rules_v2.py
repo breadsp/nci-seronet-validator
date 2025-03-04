@@ -592,9 +592,9 @@ def check_biospecimen(header_name, current_object, data_table, file_name, dateti
         Required_column = "Yes"
         current_object.check_if_number(file_name, data_table, header_name, "Biospecimen_Type", ["Serum"], [], 0, 1e9, "float")
         current_object.check_if_number(file_name, data_table, header_name, "Biospecimen_Type", ["PBMC"], [], 0, 8, "float")
-    elif ("Duration" in header_name):
+    elif ("Biospecimen_Collection_to_Receipt_Duration" in header_name):
         Required_column = "Yes"
-        current_object.check_if_number(file_name, data_table, header_name, "None", "None", [], -1e9, 1e9, "float")
+        current_object.check_if_number(file_name, data_table, header_name, "None", "None", [], 0, 1e9, "float")
     else:
         return Required_column, False
     return Required_column, True
@@ -631,7 +631,7 @@ def check_processing_rules(header_name, current_object, data_table, file_name, d
                             'DMSO, Cell Culture Grade', 'Vital Stain Dye'])
         elif (header_name in ["Consumable_Name"]):
             list_values = ["50 mL Polypropylene Tube", "15 mL Conical Tube", "15mL Conical Tube", "Cryovial Label",
-                           "2 mL Cryovial", "2mL Cryovial", "CPT Tube", "SST Tube"]
+                           "2 mL Cryovial", "2mL Cryovial", "CPT Tube", "SST Tube", "Serum_Collection_Tube", "4.5_mL_Sterile"]
         current_object.check_in_list(file_name, data_table, header_name, "Biospecimen_Type", ["PBMC"], list_values)
         current_object.unknown_list_dependancy(file_name, header_name, data_table, "Biospecimen_Type", bio_type_list)
     elif ("Aliquot" in header_name) or ("Equipment_ID" in header_name):
@@ -688,7 +688,7 @@ def check_confimation_rules(header_name, current_object, data_table, file_name, 
         current_object.check_in_list(file_name, data_table, header_name, "Raw_Result", ["N/A"], ["N/A"])
     elif ("Biospecimen_Collection_to_Test_Duration" in header_name):
         Required_column = "Yes"
-        current_object.check_if_number(file_name, data_table, header_name, "None", "None", [], -1000, 4000, "float")
+        current_object.check_if_number(file_name, data_table, header_name, "None", "None", [], 0, 4000, "float")
     else:
         return Required_column, False
     return Required_column, True
@@ -825,7 +825,7 @@ def compare_SARS_tests(current_object, pd, conn):
 
 def check_shipping(current_object, pd, conn):
     file_list = current_object.Data_Object_Table
-    aliquot_table = pd.read_sql(("SELECT Aliquot_ID, Aliquot_Volume FROM `seronetdb-Vaccine_Response`.Aliquot"), conn)
+    aliquot_table = pd.read_sql(("SELECT Aliquot_ID, Aliquot_Volume FROM Aliquot"), conn)
     
     if ("aliquot.csv" in file_list):
         aliquot_df = current_object.Data_Object_Table["aliquot.csv"]["Data_Table"][["Aliquot_ID", "Aliquot_Volume"]]
@@ -862,8 +862,11 @@ def check_vaccine_status(header_name, current_object, data_table, file_name, Rul
     has_vaccine =  has_vaccine + ["Booster " + str(i) for i in list(range(1,10))]
     has_vaccine =  has_vaccine + ["Booster " + str(i) + ":Bivalent" for i in list(range(1,10))]
     has_vaccine =  has_vaccine + ["Booster " + str(i) + ":Monovalent XBB.1.5" for i in list(range(1,10))]
+    has_vaccine =  has_vaccine + ["Booster " + str(i) + ":Monovalent KP.2" for i in list(range(1,10))]
+    
     has_vaccine =  has_vaccine + ["Dose " + str(i) + ":Bivalent" for i in list(range(1,10))]
     has_vaccine =  has_vaccine + ["Dose " + str(i) + ":Monovalent XBB.1.5" for i in list(range(1,10))]
+    
 
     if Rule_Found is True:
         pass
@@ -884,7 +887,7 @@ def check_vaccine_status(header_name, current_object, data_table, file_name, Rul
         current_object.check_if_string(file_name, data_table, header_name, "Vaccination_Status", has_vaccine, [])
     elif "SARS-CoV-2_Vaccination_Date_Duration_From_Index" in header_name:
         current_object.check_in_list(file_name, data_table, header_name, "Vaccination_Status", no_vaccine, ["N/A"])
-        current_object.check_if_number(file_name, data_table, header_name, "Vaccination_Status", has_vaccine, [], -1e9, 1e9, "int")
+        current_object.check_if_number(file_name, data_table, header_name, "Vaccination_Status", has_vaccine, ["N/A"], -1e9, 1e9, "int")
     else:
         return Required_column, False
     return Required_column, True
@@ -1156,13 +1159,16 @@ def check_vacc_hist(pd, sql_tuple, curr_obj):
             data_db = pd.read_sql((f"SELECT Vaccination_Status FROM Covid_Vaccination_Status where Research_Participant_ID = '{curr_id}';"), sql_tuple[1])
             vacc_list = curr_part["Vaccination_Status"].tolist() + data_db["Vaccination_Status"].tolist()
 
-            miss_d1 = "Dose 2 of 2" in vacc_list and "Dose 1 of 2" not in vacc_list
-            miss_d2 = "Dose 3" in vacc_list and ("Dose 2 of 2" not in vacc_list and "Dose 2" not in vacc_list)
-            miss_d2a = "Booster 1" in vacc_list and ("Dose 1 of 1" not in vacc_list and "Dose 2 of 2" not in vacc_list)
-            curr_obj.add_miss_vac_errors(curr_part, curr_id, miss_d1, miss_d2, miss_d2a)
-
-            index = [i for i in curr_part.index if ("Dose" in curr_part.loc[i, "Vaccination_Status"] or
-                                                    "Booster" in curr_part.loc[i, "Vaccination_Status"])]
+            try:
+                miss_d1 = "Dose 2 of 2" in vacc_list and "Dose 1 of 2" not in vacc_list
+                miss_d2 = "Dose 3" in vacc_list and ("Dose 2 of 2" not in vacc_list and "Dose 2" not in vacc_list)
+                miss_d2a = "Booster 1" in vacc_list and ("Dose 1 of 1" not in vacc_list and "Dose 2 of 2" not in vacc_list)
+                curr_obj.add_miss_vac_errors(curr_part, curr_id, miss_d1, miss_d2, miss_d2a)
+    
+                index = [i for i in curr_part.index if ("Dose" in curr_part.loc[i, "Vaccination_Status"] or
+                                                        "Booster" in curr_part.loc[i, "Vaccination_Status"])]
+            except Exception as e:
+                print(e)
             if len(index) > 0:
                 index = min(index)
                 unvacc = curr_part.loc[index:].query("Vaccination_Status in ['Unvaccinated']")
