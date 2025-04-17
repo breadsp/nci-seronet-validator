@@ -29,7 +29,6 @@ def check_serology_shipping(pd_s3, pd, colored, s3_client, bucket, sql_tuple):
             else:
                 print(colored("\n" + curr_file["Key"] + " was found and is good to Process", "green"))
 
-
 def Validation_Rules(re, datetime, current_object, data_table, file_name, valid_cbc_ids, drop_list, study_type):
     col_list = current_object.Data_Object_Table[file_name]["Column_List"]
     if len(col_list) > 0:
@@ -53,19 +52,19 @@ def Validation_Rules(re, datetime, current_object, data_table, file_name, valid_
             Required_column, Rule_Found = check_ID_validation(header_name, current_object, file_name, data_table, re,
                                                               valid_cbc_ids, Rule_Found)
 ########################################################################################################################
-        if file_name in ["demographic.csv", "baseline.csv"]:
+        if file_name.lower() in ["demographic.csv", "baseline.csv"]:
             Required_column, Rule_Found = check_demographic(header_name, current_object, data_table, file_name,
                                                             datetime, curr_year, max_date, Rule_Found, study_type)
-        if file_name in ["biospecimen.csv"]:
+        elif file_name.lower() in ["biospecimen.csv"]:
             Required_column, Rule_Found = check_biospecimen(header_name, current_object, data_table, file_name,
                                                             datetime, max_date, curr_year, Rule_Found)
-        if file_name in ["aliquot.csv", "equipment.csv", "reagent.csv", "consumable.csv"]:
+        elif file_name.lower() in ["aliquot.csv", "equipment.csv", "reagent.csv", "consumable.csv"]:
             Required_column, Rule_Found = check_processing_rules(header_name, current_object, data_table, file_name,
                                                                  datetime, max_date, Rule_Found)
-        if file_name in ["assay.csv", "assay_target.csv", "assay_qc.csv"]:
+        elif file_name.lower() in ["assay.csv", "assay_target.csv", "assay_qc.csv"]:
             Required_column, Rule_Found = check_assay_rules(header_name, current_object, data_table, file_name, Rule_Found)
 ########################################################################################################################
-        if study_type in ["Refrence_Pannel"]:
+        elif study_type in ["Refrence_Pannel"]:
             if file_name in ["prior_clinical_test.csv"]:
                 Required_column, Rule_Found = check_prior_clinical(header_name, current_object, data_table, file_name,
                                                                    datetime, max_date, curr_year, Rule_Found)
@@ -79,27 +78,27 @@ def Validation_Rules(re, datetime, current_object, data_table, file_name, valid_
 
         elif study_type in ["Vaccine_Response"]:
             Required_column, Rule_Found = check_all_sheet_rules(header_name, current_object, file_name, data_table, Rule_Found)
-            if file_name in ["baseline.csv", "follow_up.csv"]:
+            if file_name.lower() in ["baseline.csv", "follow_up.csv"]:
                 Required_column, Rule_Found = check_base_line_demo(header_name, current_object, data_table, file_name,
                                                                    datetime, curr_year, max_date, Rule_Found)
-            if file_name in ["covid_vaccination_status.csv"]:
+            elif file_name.lower() in ["covid_vaccination_status.csv"]:
                 Required_column, Rule_Found = check_vaccine_status(header_name, current_object, data_table, file_name, Rule_Found)
-            if file_name in ["covid_history.csv"]:
+            elif file_name.lower() in ["covid_history.csv"]:
                 Required_column, Rule_Found = check_covid_hist(header_name, current_object, data_table, file_name, Rule_Found)
-            if file_name in ["treatment_history.csv"]:
+            elif file_name.lower() in ["treatment_history.csv"]:
                 Required_column, Rule_Found = check_treatment_hist(header_name, current_object, data_table,
                                                                    file_name, datetime, curr_year, max_date, Rule_Found)
-            if file_name in ["cancer_cohort.csv", "hiv_cohort.csv", "organ_transplant_cohort.csv",
+            elif file_name.lower() in ["cancer_cohort.csv", "hiv_cohort.csv", "organ_transplant_cohort.csv",
                              "autoimmune_cohort.csv"]:
                 check_cohort_data(header_name, current_object, data_table, file_name, Rule_Found)
-            if file_name in ["assay_validation.csv", "biospecimen_test_result.csv"]:
+            elif file_name.lower() in ["assay_validation.csv", "biospecimen_test_result.csv"]:
                 Required_column, Rule_Found = check_confimation_rules(header_name, current_object, data_table, file_name,
                                                                       datetime, min_date, max_date, Rule_Found, re)
 
         if file_name in ["Validation_Panel.xlsx"]:
             Required_column, Rule_Found = check_confimation_rules(header_name, current_object, data_table, file_name,
                                                                   datetime, min_date, max_date, Rule_Found, re)
-        if file_name in ["biorepository_id_map.csv", "reference_panel.csv", "autoimmune_cohort"]:
+        if file_name.lower() in ["biorepository_id_map.csv", "reference_panel.csv", "autoimmune_cohort"]:
             Required_column, Rule_Found = check_biorepo_rules(header_name, current_object, data_table, file_name,
                                                               Rule_Found, valid_cbc_ids)
 ###################################################################################################################
@@ -112,8 +111,8 @@ def Validation_Rules(re, datetime, current_object, data_table, file_name, valid_
             Rule_Found = True
             current_object.check_if_string(file_name, data_table, header_name, "None", "None", ["N/A"])
         if Rule_Found is False:
+            #print(f"{ file_name}: Column_Name: {header_name } has no validation rules set")
             pass
-            #  print(f"{ file_name}: Column_Name: {header_name } has no validation rules set")
         else:
             current_object.get_missing_values(file_name, data_table, header_name, Required_column)
     return current_object
@@ -198,7 +197,7 @@ def check_all_sheet_rules(header_name, current_object, file_name, data_table, Ru
         #current_object.check_in_meta(file_name, data_table, header_name, "study_design.csv", "Cohort_Name")
     elif header_name in ["Visit", "Visit_Number"]:
         list_values = ["Baseline(1)"] + list(range(1, 50)) + [z+i for i in ["A", "B", "C" ,"D"] for z in ["0", "1", "2", "3", "4"]]
-        list_values = list_values + [-1]
+        list_values = list_values + [-1, -2, -3]
         current_object.check_in_list(file_name, data_table, header_name, "None", "None", list_values)
     else:
         return Required_column, False
@@ -534,7 +533,7 @@ def validate_comorbid_types(current_object, file_name, data_table, header_name, 
     if file_name in "baseline.csv":
         current_object.check_in_list(file_name, data_table, header_name, depend_col, ["Not Reported"], ["Not Reported", "N/A"])
     else:
-        current_object.check_in_list(file_name, data_table, header_name, depend_col, ["Not Reported"], ["Not Reported"])
+        current_object.check_in_list(file_name, data_table, header_name, depend_col, ["Not Reported"], ["Not Reported", "N/A"])
     current_object.check_if_string(file_name, data_table, header_name, depend_col, yes_values, [],
                                    required="Required, if CBC has access to data.")
     current_object.unknown_list_dependancy(file_name, header_name, data_table, depend_col, no_values + yes_values)
@@ -581,20 +580,27 @@ def check_biospecimen(header_name, current_object, data_table, file_name, dateti
         current_object.check_if_number(file_name, data_table, header_name, "Biospecimen_Type", ["PBMC"],
                                        ["N/A"], 0, 1e9, "float")
         current_object.unknown_list_dependancy(file_name, header_name, data_table, "Biospecimen_Type", bio_type_list)
-    elif(header_name in ["Centrifugation_Time (min)", "RT_Serum_Clotting_Time (min)"]):
-        current_object.check_if_number(file_name, data_table, header_name, "Biospecimen_Type", ["Serum"],
-                                       ["N/A"], 0, 1e9, "float")
+    elif(header_name in ["Centrifugation_Time (min)"]):
+        current_object.check_if_number(file_name, data_table, header_name, "Biospecimen_Type", ["Serum"], ["N/A"], 20, 20, "float")
+        current_object.unknown_list_dependancy(file_name, header_name, data_table, "Biospecimen_Type", bio_type_list)
+    elif(header_name in ["RT_Serum_Clotting_Time (min)"]):
+        current_object.check_if_number(file_name, data_table, header_name, "Biospecimen_Type", ["Serum"], ["N/A"], 30, 60, "float")
         current_object.unknown_list_dependancy(file_name, header_name, data_table, "Biospecimen_Type", bio_type_list)
     elif ("Duration_Units" in header_name):
         Required_column = "Yes"
         current_object.check_in_list(file_name, data_table, header_name, "None", "None", ['Minute', 'Hour', 'Day'])
     elif ("Biospecimen_Receipt_to_Storage_Duration" in header_name):
         Required_column = "Yes"
-        current_object.check_if_number(file_name, data_table, header_name, "Biospecimen_Type", ["Serum"], [], 0, 1e9, "float")
+        current_object.check_if_number(file_name, data_table, header_name, "Biospecimen_Type", ["Serum"], [], 0, 8, "float")
         current_object.check_if_number(file_name, data_table, header_name, "Biospecimen_Type", ["PBMC"], [], 0, 8, "float")
     elif ("Biospecimen_Collection_to_Receipt_Duration" in header_name):
         Required_column = "Yes"
-        current_object.check_if_number(file_name, data_table, header_name, "None", "None", [], 0, 1e9, "float")
+        current_object.check_if_number(file_name, data_table, header_name, "Biospecimen_Type", ["Serum"], [], 0, 8, "float")
+        current_object.check_if_number(file_name, data_table, header_name, "Biospecimen_Type", ["PBMC"], [], 0, 8, "float")
+
+        data_table["Total Processing Time"] = round(data_table["Biospecimen_Collection_to_Receipt_Duration"] + data_table["Biospecimen_Receipt_to_Storage_Duration"], 2)
+        current_object.check_if_number(file_name, data_table, "Total Processing Time", "None", "None", [], 0, 8, "float")
+        
     else:
         return Required_column, False
     return Required_column, True
@@ -887,7 +893,7 @@ def check_vaccine_status(header_name, current_object, data_table, file_name, Rul
         current_object.check_if_string(file_name, data_table, header_name, "Vaccination_Status", has_vaccine, [])
     elif "SARS-CoV-2_Vaccination_Date_Duration_From_Index" in header_name:
         current_object.check_in_list(file_name, data_table, header_name, "Vaccination_Status", no_vaccine, ["N/A"])
-        current_object.check_if_number(file_name, data_table, header_name, "Vaccination_Status", has_vaccine, ["N/A"], -1e9, 1e9, "int")
+        current_object.check_if_number(file_name, data_table, header_name, "Vaccination_Status", has_vaccine, ["N/A"], -1e9, 1e9, "float")
     else:
         return Required_column, False
     return Required_column, True
@@ -1221,9 +1227,9 @@ def make_dict(curr_obj, master_dict, filt_table, type_var, cat_var, index):
                 missing_visit = extra_dict[missing]["Visit_Number"]
                 x = (f"For {cat_var}, condition: {found} was found at visit: {found_visit}, " +
                      f"but was not found at visit: {missing_visit}")
-                if found_visit != missing_visit:
-                    curr_obj.add_error_values("Error", "Cross_Sheet_Comobidity.csv", int(filt_table.loc[0]["index"]) + 2,
-                                              "Research_Participant_ID", filt_table.loc[0]["Research_Participant_ID"], x)
+#                if found_visit != missing_visit:
+#                    curr_obj.add_error_values("Error", "Cross_Sheet_Comobidity.csv", int(filt_table.loc[0]["index"]) + 2,
+#                                              "Research_Participant_ID", filt_table.loc[0]["Research_Participant_ID"], x)
     return master_dict
 
 

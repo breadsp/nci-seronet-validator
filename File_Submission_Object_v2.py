@@ -144,6 +144,8 @@ class Submission_Object:
         except Exception as e:
             print(e)
             Data_Table = pd.DataFrame()
+        Data_Table.fillna("N/A", inplace=True)
+        Data_Table.replace(" Not Reported","Not Reported", inplace=True)
         self.Data_Object_Table[file_name]["Data_Table"].append(Data_Table)
         if file_name not in ["submission.csv"]:
             self.cleanup_table(file_name)
@@ -207,10 +209,10 @@ class Submission_Object:
         self.Data_Object_Table["visit_info_sql.csv"] = {"Data_Table": []}
 
         all_visits = pd.read_sql(("SELECT Research_Participant_ID, Visit_Info_ID, Visit_Number, Type_Of_Visit as 'Visit_Type' " +
-                                  "FROM `seronetdb-Vaccine_Response`.Participant_Visit_Info"), sql_tuple[2])
-        all_visits["Visit_Number"] = [i[-2:] if i[-1] in ["A", "B", "C", "D"] else int(i[-2:]) for i in all_visits["Visit_Info_ID"]]
+                                  "FROM Participant_Visit_Info"), sql_tuple[2])
+        
+        all_visits["Visit_Number"] = [i[-2:] if i[-1] in ["A", "B", "C", "D"] else int(i[-1:]) if i[-3:-1] == "PB" else int(i[-2:]) for i in all_visits["Visit_Number"]]
         self.Data_Object_Table["visit_info_sql.csv"]["Data_Table"] = all_visits.drop_duplicates()
-
 
     def create_visit_table(self, curr_table, study_type):
         if curr_table not in self.Data_Object_Table:
@@ -233,9 +235,13 @@ class Submission_Object:
                     if curr_table == "baseline.csv":
                         base_line["Visit_Number"] = 1
                         base_line["Visit_Type"] = "Baseline"
+                        if "Visit_Info_ID" not in base_line.columns:
+                            base_line["Visit_Info_ID"] = [i + " : B01" for i in base_line["Research_Participant_ID"]]
+                            
                     else:
                         base_line["Visit_Type"] = "Follow_Up"
-                        base_line["Visit_Number"] = [i[-2:] if i[-1] in ["A", "B", "C", "D"] else int(i[-2:]) for i in base_line["Visit_Info_ID"]]
+                        base_line["Visit_Number"] = [str(-1*int(i[-1:])) if i[-3:] in ["PB1", "PB2", "PB3", "PB4"] else i for i in base_line["Visit_Info_ID"]]
+                        base_line["Visit_Number"] = [i[-2:] if i[-1] in ["A", "B", "C", "D"] else int(i[-2:]) for i in base_line["Visit_Number"]]
                     try:
                         visit_info = visit_info.merge(base_line[["Research_Participant_ID", "Visit_Info_ID", "Visit_Number", "Visit_Type"]], how="outer")
                         org_data = self.Data_Object_Table["visit_info_sql.csv"]["Data_Table"]
@@ -627,11 +633,14 @@ class Submission_Object:
         return col_err_count
 
     def check_if_cbc_num(self, sheet_name, field_name, data_table, cbc_list):
-        data_table[field_name] = [str(int(i)) for i in data_table[field_name]]
-        wrong_code = data_table[data_table[field_name].apply(lambda x: x not in cbc_list)]
-        for i in wrong_code.index:
-            error_msg = "Lab ID is not valid, please check against list of approved ID values"
-            self.add_error_values("Error", sheet_name, i+2, field_name, wrong_code[field_name][i], error_msg)
+        try:
+            data_table[field_name] = [str(int(i)) for i in data_table[field_name]]
+            wrong_code = data_table[data_table[field_name].apply(lambda x: x not in cbc_list)]
+            for i in wrong_code.index:
+                error_msg = "Lab ID is not valid, please check against list of approved ID values"
+                self.add_error_values("Error", sheet_name, i+2, field_name, wrong_code[field_name][i], error_msg)
+        except Exception as e:
+            print (e)
 
     def check_id_field(self, sheet_name, data_table, re, field_name, pattern_str, id_list, pattern_error):
         if field_name in ["Biorepository_ID", "Parent_Biorepository_ID", "Subaliquot_ID"]:
@@ -822,12 +831,17 @@ class Submission_Object:
             #  is_float = good_data[header_name].apply(lambda x: str(x).is_integer() is False)
             #  is_float = good_data[header_name].apply(lambda x: isinstance(x, (int)) is False)
             is_float = good_data[header_name].apply(lambda x: (x*10)%10 > 0)
-            error_msg = (error_str + "Value must be an interger between " + str(lower_lim) + " and " +
-                         str(upper_lim))
+            if upper_lim == 1e9:
+                error_msg = (error_str + "Value must be a postive interger greater than or equal to  " + str(lower_lim))
+            else:
+                error_msg = (error_str + "Value must be an interger between " + str(lower_lim) + " and " + str(upper_lim))
             self.update_error_table("Error", good_data[is_float], sheet_name, header_name, error_msg)
         elif num_type == "float":
             is_number = good_data[header_name].apply(lambda x: isinstance(x, (int, float)) is False)
-            error_msg = (error_str + "Value must be a number between " + str(lower_lim) + " and " + str(upper_lim))
+            if upper_lim == 1e9:
+                error_msg = (error_str + "Value must be a postive number greater than or equal to  " + str(lower_lim))
+            else:
+                error_msg = (error_str + "Value must be a number between " + str(lower_lim) + " and " + str(upper_lim))
             self.update_error_table("Error", good_data[is_number], sheet_name, header_name, error_msg)
 
         if len(allowed_values) > 0:
@@ -835,11 +849,11 @@ class Submission_Object:
             error_msg = error_msg + " Or in " + str(allowed_values)
 
         error_data = data_table[[not x for x in good_logic]]
-        if depend_col == "None":
-            self.update_error_table(Error_Type, error_data, sheet_name, header_name, error_msg)
-            self.update_error_table(Error_Type, good_data[to_low], sheet_name, header_name, error_msg)
-            self.update_error_table(Error_Type, good_data[to_high], sheet_name, header_name, error_msg)
-        else:
+#        if depend_col == "None":
+        self.update_error_table(Error_Type, error_data, sheet_name, header_name, error_msg)
+        self.update_error_table(Error_Type, good_data[to_low], sheet_name, header_name, error_msg)
+        self.update_error_table(Error_Type, good_data[to_high], sheet_name, header_name, error_msg)
+        if depend_col != "None":
             for curr_err in error_data.index:
                 test_col = str(error_data.loc[curr_err][depend_col]).split("|")
                 check_logic = [i for i in test_col if i in depend_val]
@@ -876,7 +890,7 @@ class Submission_Object:
         has_data = []
         for test in has_test:
             z = data_table[[test in i.split("|") for i in data_table["COVID_Status"].tolist()]]
-            self.check_if_number(file_name, z, header_name, "COVID_Status", has_test, ["Not Reported"], -1000, 1000, "int")
+            self.check_if_number(file_name, z, header_name, "COVID_Status", has_test, ["Not Reported", "N/A"], -2000, 2000, "int")
             if len(has_data) == 0:
                 has_data = z
             else:
@@ -965,7 +979,7 @@ class Submission_Object:
         if na_allowed is False:
             date_logic = data_table[header_name].apply(lambda x: isinstance(x, (datetime.datetime, datetime.date)) or x in [''])
         else:
-            date_logic = data_table[header_name].apply(lambda x: isinstance(x, (datetime.datetime, datetime.date)) or x in ['N/A', ''])
+            date_logic = data_table[header_name].apply(lambda x: isinstance(x, (datetime.datetime, datetime.date)) or x in ['N/A', 'Not Reported', ''])
             error_msg = error_msg + " Or N/A"
         error_data = data_table[[not x for x in date_logic]]
         self.update_error_table("Error", error_data, sheet_name, header_name, error_msg)
@@ -1241,7 +1255,9 @@ class Submission_Object:
         if "visit_info_sql.csv" not in data_dict:
             return
         visit_info = data_dict["visit_info_sql.csv"]['Data_Table']
-        visit_info["Visit_Number"] = [i[-2:] if i[-1] in ["A", "B", "C", "D"] else int(i[-2:]) for i in visit_info["Visit_Info_ID"]]
+        
+        #visit_info["Visit_Number"] = [str(-1*int(i[-1:])) if i[-3:] in ["PB1", "PB2", "PB3", "PB4"] else i for i in visit_info["Visit_Info_ID"]]
+        #visit_info["Visit_Number"] = [i[-2:] if i[-1] in ["A", "B", "C", "D"] else int(i[-2:]) for i in visit_info["Visit_Number"]]
         if visit_type == "baseline":
             query_str = "Visit_Number in ['Baseline(1)']"
         elif visit_type == "followup":
@@ -1260,11 +1276,12 @@ class Submission_Object:
                     continue  # iterZ is an sql sheet and only has partial columns
                 baseline_visit = curr_data.query(query_str)
                 baseline_visit = baseline_visit.replace("Baseline(1)", 1)
+                baseline_visit = baseline_visit.replace("Baseline (1)", 1)
 
                 try:
                     baseline_visit["Visit_Number"] = [str(i) for i in  baseline_visit["Visit_Number"]]
                     baseline_visit["Visit_Number"] = baseline_visit["Visit_Number"].replace('', "0")
-                    baseline_visit["Visit_Number"] = [i[-2:] if i[-1] in ["A", "B", "C", "D"] else int(i[-2:]) for i in baseline_visit["Visit_Number"]]
+                    baseline_visit["Visit_Number"] = [i[-2:] if i[-1] in ["A", "B", "C", "D"] else int(i[-1:]) if i[-3:-1] == "PB" else int(i[-2:]) for i in baseline_visit["Visit_Number"]]
                     check_visit = baseline_visit.merge(visit_info, indicator=True, how="left")
                 except Exception as e:
                     print(e)

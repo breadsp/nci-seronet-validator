@@ -11,13 +11,17 @@ import db_loader_v4
 from connect_to_sql_db import connect_to_sql_db
 from File_Submission_Object_v2 import Submission_Object
 import Validation_Rules_v2 as vald_rules
+
+import Update_Participant_Info
+import rename_cohorts
+import vaccine_resp_time_line_v2
 #########################################################################################hhh####
 #  import templates abd CBC codes directly from box
 #  connect to S3 client and return handles for future use
 start_time = time.time()
 print("## Running Set Up Functions")
 file_sep, s3_client, s3_resource, Support_Files, validation_date, box_dir = set_up_function()
-#study_type = "Reference_Panel"
+#study_type = "Reference_Pannel"
 study_type = "Vaccine_Response"
 
 template_df, dbname = get_template_data(pd, box_dir, file_sep, study_type)
@@ -33,14 +37,14 @@ def Data_Validation_Main(study_type):
     ignore_validation_list = ["submission.csv", "assay.csv", "assay_target.csv", "baseline_visit_date.csv"]
     check_BSI_tables = False
     make_rec_report = False
-    upload_ref_data = True
+    upload_ref_data = False
     bucket = "nci-cbiit-seronet-submissions-passed"
 ##############################################################################################
     start_time = time.time()
     print("Connection to SQL database took %.2f seconds" % (time.time() - start_time))
     if study_type == "Vaccine_Response":
-        sql_tuple = connect_to_sql_db(pd, sd, "seronetdb-Vaccine_Response")
-    elif study_type == "Reference_Panel":
+        sql_tuple = connect_to_sql_db(pd, sd, "seronetdb-Vaccine_Response_v2")
+    elif study_type == "Reference_Pannel":
         sql_tuple = connect_to_sql_db(pd, sd, "seronetdb-Validated")
         
     #new_cohort = pd.read_excel(r"C:\Users\breadsp2\Documents\update_cohort_table.xlsx")
@@ -62,7 +66,7 @@ def Data_Validation_Main(study_type):
 #    if check_BSI_tables is True:
 #        check_bio_repo_tables(s3_client, s3_resource, study_type)  # Create BSI report using file in S3 bucket
 ###############################################################################################
-    if study_type == "Refrence_Pannel":
+    if study_type == "Reference_Pannel":
         # sql_table_dict = db_loader_ref_pannels.Db_loader_main(sql_tuple, validation_date)
                                                      
         
@@ -81,7 +85,9 @@ def Data_Validation_Main(study_type):
 #############################################################################################
 # pulls the all assay data directly from box
         start_time = time.time()
-        assay_data, assay_target, all_qc_data, converion_file = get_box_data_v2.get_assay_data("CBC_Data")
+        assay_data = pd.read_sql(("Select * from Assay_Metadata"), sql_tuple[1])
+        assay_target = pd.read_sql(("Select * from Assay_Target"), sql_tuple[1])
+        #assay_data, assay_target, all_qc_data, converion_file = get_box_data_v2.get_assay_data("CBC_Data")
    #     study_design = pd.read_sql(("Select * from Study_Design"), sql_tuple[1])
    #     study_design.drop("Cohort_Index", axis=1, inplace=True)
         #get_box_data_v2.get_study_design()
@@ -89,7 +95,7 @@ def Data_Validation_Main(study_type):
         print("\nLoading Assay Data took %.2f seconds" % (time.time()-start_time))
 ############################################################################################
         if study_type == "Refrence_Pannel":
-            check_serology_submissions(s3_client, colored, bucket, assay_data, assay_target)
+            #check_serology_submissions(s3_client, colored, bucket, assay_data, assay_target)
             vald_rules.check_serology_shipping(pd_s3, pd, colored, s3_client, bucket, sql_tuple)
 ############################################################################################
 # Creates Sub folders to place submissions in based on validation results
@@ -121,6 +127,8 @@ def Data_Validation_Main(study_type):
                 continue
             file_list = check_if_done(file_list)
             for curr_file in file_list:
+                if "intake.csv" == curr_file:  #this is an accural file, do not check
+                    continue
                 file_path, file_name = os.path.split(curr_file)         # gets file path and file name
                 curr_date = os.path.split(file_path)                    # trims date from file path
                 list_of_folders = os.listdir(curr_file)
@@ -204,15 +212,18 @@ def Data_Validation_Main(study_type):
                             data_table = current_sub_object.Data_Object_Table[file_name]['Data_Table']
                             data_table.fillna("N/A", inplace=True)
                             data_table = current_sub_object.correct_var_types(file_name, study_type)
+                            print(f"{file_name} has been completed: corrected var types")
                     except Exception as e:
                         display_error_line(e)
                 for file_name in current_sub_object.Data_Object_Table:
-                    tic = time.time()
                     try:
                         if file_name in ignore_validation_list or "_sql.csv" in file_name:
                             continue
                         if "Data_Table" in current_sub_object.Data_Object_Table[file_name]:
+                            tic = time.time()
                             data_table, drop_list = current_sub_object.merge_tables(file_name)
+                            data_table.fillna("N/A", inplace=True)
+                            data_table.replace("","N/A", inplace=True)
                             current_sub_object.Data_Object_Table[file_name]['Data_Table'] = data_table.drop(drop_list, axis=1)
                             current_sub_object.Data_Object_Table[file_name]['Data_Table'].drop_duplicates(inplace=True)
                             current_sub_object = vald_rules.Validation_Rules(re, datetime, current_sub_object, data_table,
@@ -233,7 +244,7 @@ def Data_Validation_Main(study_type):
                     current_sub_object.compare_visits("followup")
                     vald_rules.check_comorbid_hist(pd, sql_tuple, current_sub_object)
                     vald_rules.check_vacc_hist(pd, sql_tuple, current_sub_object)
-                    current_sub_object.check_comorbid_dict(pd, sql_tuple[2])
+                    #current_sub_object.check_comorbid_dict(pd, sql_tuple[2])
                 elif study_type == "Refrence_Pannel":
                     vald_rules.compare_SARS_tests(current_sub_object, pd, sql_tuple[2])
                 vald_rules.check_shipping(current_sub_object, pd, sql_tuple[2])
@@ -274,7 +285,22 @@ def Data_Validation_Main(study_type):
             populate_md5_table(pd, sql_tuple, study_type)
         close_connections(dbname, sql_tuple)
     print("\nALl folders have been checked")
+
+
+    print("Preforming update data tables")
+    print("Updating Participant offset table")
+    #Update_Participant_Info.update_participant_info()
+    print("updating cohort definations for new data")
+    #rename_cohorts.main_func()
+    #print("updating normalized visit info")
+    #vaccine_resp_time_line_v2.make_time_line()
+
+
+
     print("Closing Validation Program")
+
+
+
 
 
 def close_connections(file_name, conn_tuple):
